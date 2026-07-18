@@ -1,0 +1,17 @@
+%C - Dual-camera side-by-side NV12 viewfinder with EV-biased exposure
+
+Syntax:
+    bathat [options]
+
+Options:
+    --probe         Print camera capabilities (units, viewfinder formats and
+                    resolutions, EV-offset support) and exit. Run this first
+                    on new hardware to resolve driver-specific unknowns.
+    --ev N          Exposure-value bias for auto-exposure (default 1.0; higher
+                    is brighter). Clamped to what the sensor reports.
+    --width W       Per-camera viewfinder width in pixels (default 640).
+    --height H      Per-camera viewfinder height in pixels (default 480).
+
+Examples:
+    bathat --probe
+    bathat --ev 1.5 --width 640 --height 480
