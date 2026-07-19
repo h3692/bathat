@@ -22,3 +22,13 @@ __pycache__/
 
 # Editor-local settings
 .vscode/
+
+# Private environment variables
+.env
+audio/.env
+
+# Build output
+audio/build/
+
+# macOS files
+.DS_Store
