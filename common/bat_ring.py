@@ -30,6 +30,7 @@ NO_FRAME = 0xFFFFFFFF
 
 FMT_NV12 = 1  # Y plane (w*h) then interleaved UV plane (w*h/2), stride == w
 FMT_F32 = 2   # w*h little-endian float32 (depth map)
+FMT_BGR8 = 3  # w*h*3 bytes, B,G,R interleaved (rectified colour)
 
 _HDR = struct.Struct("<8IQ")   # magic..latest (8 u32), wr_count (u64)
 _HDR_SIZE = 64

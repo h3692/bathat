@@ -51,6 +51,7 @@ enum bat_ring_format {
     BAT_FMT_NV12 = 1, /* Y plane (width*height), then interleaved UV plane
                          (width*height/2); tight stride == width */
     BAT_FMT_F32 = 2,  /* width*height little-endian float32 (depth map) */
+    BAT_FMT_BGR8 = 3, /* width*height*3 bytes, B,G,R interleaved (rectified colour) */
 };
 
 typedef struct bat_ring_hdr {

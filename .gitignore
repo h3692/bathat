@@ -15,5 +15,8 @@ __pycache__/
 # The MiDaS model is copied in, not committed (see README.md)
 /models/
 
+# Calibration capture shots (transient); calib/*.yml are kept
+/calib/*_shots/
+
 # Editor-local settings
 .vscode/

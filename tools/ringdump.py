@@ -31,6 +31,8 @@ def to_bgr(hdr, payload):
         depth = np.frombuffer(payload, np.float32).reshape(hdr.height, hdr.width)
         normalized = (depth - depth.min()) / max(float(depth.max() - depth.min()), 1e-6)
         return cv2.applyColorMap((normalized * 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
+    if hdr.format == bat_ring.FMT_BGR8:
+        return np.frombuffer(payload, np.uint8).reshape(hdr.height, hdr.width, 3)
     sys.exit("unknown ring format %d" % hdr.format)
 
 
@@ -48,7 +50,8 @@ def main():
     stem = os.path.splitext(os.path.basename(path))[0]
     os.makedirs(args.out, exist_ok=True)
 
-    fmt_names = {bat_ring.FMT_NV12: "NV12", bat_ring.FMT_F32: "depth-f32"}
+    fmt_names = {bat_ring.FMT_NV12: "NV12", bat_ring.FMT_F32: "depth-f32",
+                bat_ring.FMT_BGR8: "BGR"}
     with bat_ring.RingReader(path) as reader:
         last_idx = None
         saved = 0
