@@ -130,6 +130,50 @@ int main() {
               "a new object gets a fresh id");
     }
 
+    // Seam handoff, cameras disagreeing: when a track has been coasting
+    // (no hits lately), a candidate beyond the normal gate but inside the
+    // seam gate adopts it — same object, same id, no second announcement.
+    {
+        Tracker tracker;
+        const std::vector<Track> t1 = tracker.update({{0.8f, -10.0f, 0}}, kMs);
+        // 700 ms later cam0 has lost it and cam1 reports it at +25 (35 apart).
+        const std::vector<Track> t2 =
+            tracker.update({{0.8f, 25.0f, 1}}, kMs + 700 * kMs);
+        CHECK(t2.size() == 1, "seam handoff keeps one track");
+        CHECK(t2[0].id == t1[0].id, "seam handoff keeps the id");
+        CHECK(t2[0].azimuth_deg > -10.0f, "azimuth follows the handoff");
+    }
+
+    // ...but a FRESH track (still being hit) is never adopted that way: a
+    // detection 35 degrees off something actively seen is a second object.
+    {
+        Tracker tracker;
+        const std::vector<Track> t1 = tracker.update({{0.8f, -10.0f, 0}}, kMs);
+        const std::vector<Track> t2 = tracker.update(
+            {{0.8f, -10.0f, 0}, {0.7f, 25.0f, 1}}, kMs + 100 * kMs);
+        CHECK(t2.size() == 2, "a second object near a live track stays separate");
+        CHECK(t2[0].id != t2[1].id, "two live objects, two ids");
+        (void)t1;
+    }
+
+    // Seam handoff across the blind wedge: the old track fully dies, but a
+    // rebirth nearby soon after inherits the dead track's id (graveyard).
+    {
+        Tracker tracker;
+        const std::vector<Track> t1 = tracker.update({{0.8f, -5.0f, 0}}, kMs);
+        CHECK(tracker.update({}, kMs + 1400 * kMs).empty(), "track dies in the wedge");
+        const std::vector<Track> t2 =
+            tracker.update({{0.8f, 20.0f, 1}}, kMs + 2400 * kMs);
+        CHECK(t2.size() == 1 && t2[0].id == t1[0].id,
+              "rebirth near a recent grave inherits the id");
+        // A rebirth far from any grave is a genuinely new object.
+        CHECK(tracker.update({}, kMs + 4000 * kMs).empty(), "second death");
+        const std::vector<Track> t3 =
+            tracker.update({{0.8f, 85.0f, 1}}, kMs + 5000 * kMs);
+        CHECK(t3.size() == 1 && t3[0].id != t1[0].id,
+              "far rebirth gets a fresh id");
+    }
+
     // Winner-take-all voice selection: the closest track wins, but the
     // current holder keeps the voice unless a challenger is clearly closer.
     {

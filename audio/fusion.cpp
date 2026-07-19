@@ -60,8 +60,11 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
               });
     if (cands.size() > kMaxTracks) cands.resize(kMaxTracks);
 
-    // 3. Associate candidates to tracks by nearest azimuth; new objects take a
-    // free slot, or evict the weakest unmatched track if strictly closer.
+    // 3. Associate candidates to tracks by nearest azimuth; a candidate the
+    // normal gate misses may still adopt a *coasting* track inside the seam
+    // gate (an object handed from one camera to the other jumps that far);
+    // otherwise new objects take a free slot, or evict the weakest unmatched
+    // track if strictly closer.
     bool matched[kMaxTracks] = {false, false, false};
     for (const Candidate& c : cands) {
         int best = -1;
@@ -75,6 +78,18 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
             }
         }
         if (best < 0) {
+            best_gap = kSeamGateDeg;
+            for (int i = 0; i < kMaxTracks; ++i) {
+                if (!slots_[i].used || matched[i]) continue;
+                if (now_ns - slots_[i].last_hit_ns < kStaleNs) continue;
+                const float gap = std::fabs(c.azimuth_deg - slots_[i].azimuth_deg);
+                if (gap <= best_gap) {
+                    best_gap = gap;
+                    best = i;
+                }
+            }
+        }
+        if (best < 0) {
             for (int i = 0; i < kMaxTracks; ++i) {
                 if (!slots_[i].used) {
                     best = i;
@@ -83,7 +98,7 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
             }
             if (best >= 0) {
                 slots_[best] = Slot{true, c.closeness, c.azimuth_deg, now_ns,
-                                    next_id_++};
+                                    birth_id(c.azimuth_deg, now_ns)};
                 matched[best] = true;
                 continue;
             }
@@ -95,7 +110,7 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
             }
             if (weakest >= 0 && c.closeness > slots_[weakest].closeness) {
                 slots_[weakest] = Slot{true, c.closeness, c.azimuth_deg, now_ns,
-                                       next_id_++};
+                                       birth_id(c.azimuth_deg, now_ns)};
                 matched[weakest] = true;
             }
             continue;
@@ -108,11 +123,17 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
     }
 
     // 4. Tracks that missed this round survive the hold window (the cameras
-    // alternate, so every object legitimately skips updates), then drop.
+    // alternate, so every object legitimately skips updates), then drop —
+    // into the graveyard, so an object reappearing past the blind wedge can
+    // reclaim its id instead of counting as a second obstacle.
     for (int i = 0; i < kMaxTracks; ++i)
         if (slots_[i].used && !matched[i] &&
-            now_ns - slots_[i].last_hit_ns > kHoldNs)
+            now_ns - slots_[i].last_hit_ns > kHoldNs) {
             slots_[i].used = false;
+            graves_[grave_next_] =
+                Grave{slots_[i].azimuth_deg, slots_[i].id, now_ns};
+            grave_next_ = (grave_next_ + 1) % (2 * kMaxTracks);
+        }
 
     // 5. Rank nearest-first: index = the synthesizer's voice rank.
     std::vector<Track> tracks;
@@ -123,6 +144,17 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
                   return x.closeness > y.closeness;
               });
     return tracks;
+}
+
+uint32_t Tracker::birth_id(float azimuth_deg, uint64_t now_ns) {
+    for (Grave& g : graves_) {
+        if (g.id == 0 || now_ns - g.death_ns > kGraveNs) continue;
+        if (std::fabs(azimuth_deg - g.azimuth_deg) > kSeamGateDeg) continue;
+        const uint32_t id = g.id;
+        g.id = 0;  // an id is inherited at most once
+        return id;
+    }
+    return next_id_++;
 }
 
 const Track* pick_voice(const std::vector<Track>& tracks, bool have_holder,

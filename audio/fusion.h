@@ -50,6 +50,17 @@ public:
     static constexpr float kEma = 0.6f;            // per-update smoothing
     static constexpr uint64_t kHoldNs = 1200000000ull;  // 1.2 s miss grace
 
+    // Seam handoff: an object crossing between the cameras can jump farther
+    // than the track gate (the cameras' azimuth estimates disagree at their
+    // FOV edges) or vanish entirely for a moment (the blind wedge between
+    // them). Treating the reappearance as a new object would re-announce it
+    // and restart the hum — so a candidate may adopt a *coasting* track (no
+    // hits for kStaleNs) within the wider seam gate, and a track born within
+    // the seam gate of a recently dead one inherits the dead track's id.
+    static constexpr float kSeamGateDeg = 40.0f;
+    static constexpr uint64_t kStaleNs = 500000000ull;   // coasting after 0.5 s
+    static constexpr uint64_t kGraveNs = 4000000000ull;  // id lives on 4 s
+
     // Feed the newest detections from both cameras (concatenated) and the
     // current CLOCK_MONOTONIC time; returns active tracks, nearest first.
     std::vector<Track> update(const std::vector<Detection>& dets, uint64_t now_ns);
@@ -64,6 +75,16 @@ private:
     };
     Slot slots_[kMaxTracks];
     uint32_t next_id_ = 1;
+
+    struct Grave {
+        float azimuth_deg = 0.0f;
+        uint32_t id = 0;  // 0 = empty
+        uint64_t death_ns = 0;
+    };
+    Grave graves_[2 * kMaxTracks];
+    int grave_next_ = 0;
+
+    uint32_t birth_id(float azimuth_deg, uint64_t now_ns);
 };
 
 // Winner-take-all voice selection: only one object hums at a time. The
