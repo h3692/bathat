@@ -115,6 +115,34 @@ int main() {
               "farther object does not evict a nearer track");
     }
 
+    // Winner-take-all voice selection: the closest track wins, but the
+    // current holder keeps the voice unless a challenger is clearly closer.
+    {
+        const std::vector<Track> none;
+        CHECK(fusion::pick_voice(none, false, 0.0f) == nullptr, "no tracks, no voice");
+        const std::vector<Track> tracks = {{0.60f, 50.0f}, {0.55f, 8.0f}};
+        CHECK(fusion::pick_voice(tracks, false, 0.0f) == &tracks[0],
+              "without a holder the nearest track wins");
+        CHECK(fusion::pick_voice(tracks, true, 10.0f) == &tracks[1],
+              "the holder keeps the voice inside the sticky margin");
+        const std::vector<Track> clear = {{0.80f, 50.0f}, {0.55f, 8.0f}};
+        CHECK(fusion::pick_voice(clear, true, 10.0f) == &clear[0],
+              "a clearly closer challenger takes the voice");
+    }
+
+    // Ear zones: hard left / both / hard right with hysteresis, so a
+    // borderline object cannot flutter between ears.
+    {
+        fusion::ZoneQuantizer zone;
+        CHECK(zone.quantize(0.0f) == 0.0f, "centre plays both ears");
+        CHECK(zone.quantize(-20.0f) == -90.0f, "past the left edge -> left ear");
+        CHECK(zone.quantize(-14.0f) == -90.0f, "hysteresis holds the left zone");
+        CHECK(zone.quantize(-10.0f) == 0.0f, "well inside centre -> both ears");
+        CHECK(zone.quantize(20.0f) == 90.0f, "past the right edge -> right ear");
+        CHECK(zone.quantize(14.0f) == 90.0f, "hysteresis holds the right zone");
+        CHECK(zone.quantize(-20.0f) == -90.0f, "right zone can hand straight to left");
+    }
+
     if (failures == 0) {
         std::printf("PASS: fusion (all checks)\n");
         return 0;

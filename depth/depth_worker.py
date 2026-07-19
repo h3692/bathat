@@ -149,6 +149,10 @@ def main():
                         help="close-pixel percentile for blob detection")
     parser.add_argument("--min-area", type=float, default=0.005,
                         help="minimum blob area as a fraction of the depth map")
+    parser.add_argument("--min-contrast", type=float, default=0.65,
+                        help="how far a blob must stand above the scene's "
+                             "P40 depth (fraction of the frame range) to "
+                             "count as close; below it nothing is near")
     parser.add_argument("--yaw0", type=float, default=-45.0,
                         help="cam0 mounting yaw in degrees (0 = user's forward)")
     parser.add_argument("--yaw1", type=float, default=45.0,
@@ -225,7 +229,7 @@ def main():
                     und = Undistorter(i, hdr.width, hdr.height)
                     new_Ks[i] = und.new_K if und.enabled else None
                     calibrated[i] = True
-                lo, hi = norms[i].update(depth)
+                lo, hi, ref = norms[i].update(depth)
                 yaw = yaws[i] if i < len(yaws) else 0.0
                 dets = [bat_ring.Detection(
                             cx=b.cx, cy=b.cy, radius=b.radius,
@@ -233,7 +237,8 @@ def main():
                             azimuth_deg=detect.azimuth_deg(
                                 b.cx, new_Ks[i], hdr.width, yaw, args.fov))
                         for b in detect.detect_blobs(depth, args.det_thresh,
-                                                     args.min_area, lo, hi)]
+                                                     args.min_area, lo, hi,
+                                                     ref, args.min_contrast)]
                 det_writers[i].write(bat_ring.pack_detections(dets),
                                      t_capture=meta.t_capture,
                                      frame_idx=meta.frame_idx)

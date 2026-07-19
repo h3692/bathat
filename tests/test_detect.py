@@ -86,10 +86,31 @@ def test_rolling_norm():
     norm = detect.RollingNorm(alpha=0.15)
     depth = synthetic(far=2.0)
     depth[:128, :] = 8.0  # half the frame near, so P95 actually lands at 8
-    lo0, hi0 = norm.update(depth)
+    lo0, hi0, ref0 = norm.update(depth)
     assert lo0 == np.percentile(depth, 5) and hi0 == np.percentile(depth, 95)
-    lo1, hi1 = norm.update(synthetic(far=2.0))  # hi decays toward new P95
-    assert hi1 < hi0 and lo1 <= lo0 + 1e-6, (lo1, hi1)
+    assert ref0 == np.percentile(depth, 40)
+    lo1, hi1, ref1 = norm.update(synthetic(far=2.0))  # hi decays toward new P95
+    assert hi1 < hi0 and lo1 <= lo0 + 1e-6, (lo1, hi1, ref1)
+
+
+def test_contrast_gate_mutes_smooth_scenes():
+    # An empty corridor: depth falls off smoothly, so the "nearest 15%" is just
+    # the near end of the gradient — it barely stands out from the median and
+    # must be gated out (nothing is actually close).
+    depth = np.tile(np.linspace(1.0, 5.0, 256, dtype=np.float32), (256, 1))
+    lo, hi = np.percentile(depth, 5), np.percentile(depth, 95)
+    ref = np.percentile(depth, 40)
+    blobs = detect.detect_blobs(depth, thresh_pct=85.0, min_area_frac=0.005,
+                                lo=lo, hi=hi, ref=ref, min_contrast=0.65)
+    assert blobs == [], blobs
+    # A genuinely close object towers over the median -> passes the gate.
+    depth2 = synthetic()
+    depth2[100:160, 100:160] = 10.0
+    lo2, hi2 = np.percentile(depth2, 5), np.percentile(depth2, 95)
+    ref2 = np.percentile(depth2, 40)
+    blobs2 = detect.detect_blobs(depth2, thresh_pct=85.0, min_area_frac=0.005,
+                                 lo=lo2, hi=hi2, ref=ref2, min_contrast=0.65)
+    assert len(blobs2) == 1, blobs2
 
 
 def main():

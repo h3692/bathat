@@ -29,31 +29,44 @@ _KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
 
 class RollingNorm:
-    """Per-camera rolling depth extremes (P5/P95, EMA-smoothed)."""
+    """Per-camera rolling depth statistics (P5/P95 extremes plus a P40
+    reference level, all EMA-smoothed). The reference is what the contrast
+    gate measures blobs against: genuinely close objects tower over it, while
+    the near end of an empty scene's smooth falloff barely clears it."""
 
     def __init__(self, alpha=0.15):
         self.alpha = alpha
         self.lo = None
         self.hi = None
+        self.ref = None
 
     def update(self, depth):
-        """Feed one depth map; return the smoothed (lo, hi)."""
+        """Feed one depth map; return the smoothed (lo, hi, ref)."""
         mn = float(np.percentile(depth, 5))
         mx = float(np.percentile(depth, 95))
+        md = float(np.percentile(depth, 40))
         if self.lo is None:
-            self.lo, self.hi = mn, mx
+            self.lo, self.hi, self.ref = mn, mx, md
         else:
             self.lo += self.alpha * (mn - self.lo)
             self.hi += self.alpha * (mx - self.hi)
-        return self.lo, self.hi
+            self.ref += self.alpha * (md - self.ref)
+        return self.lo, self.hi, self.ref
 
 
-def detect_blobs(depth, thresh_pct, min_area_frac, lo, hi):
+def detect_blobs(depth, thresh_pct, min_area_frac, lo, hi, ref=None,
+                 min_contrast=0.0):
     """Segment the nearest pixels of one depth map into blobs.
 
     Returns a list of Blob sorted by closeness descending (nearest first),
     capped at 8. `lo`/`hi` are the rolling extremes used to score closeness;
     the segmentation itself thresholds at the frame's `thresh_pct` percentile.
+
+    With `ref` (the rolling P40 level) and `min_contrast` set, blobs whose
+    mean depth doesn't stand out from `ref` by at least `min_contrast` of the
+    frame's range are dropped: MiDaS depth is relative, so something is always
+    "nearest", but only a blob that towers over the bulk of the scene means an
+    object is actually close.
     """
     h, w = depth.shape
     # Strict >: in a near-flat scene the percentile ties with the background
@@ -71,6 +84,8 @@ def detect_blobs(depth, thresh_pct, min_area_frac, lo, hi):
         if area_frac < min_area_frac:
             continue
         mean_depth = float(depth[labels == i].mean())
+        if ref is not None and (mean_depth - ref) / span < min_contrast:
+            continue
         blobs.append(Blob(
             cx=float(centroids[i][0]) / w,
             cy=float(centroids[i][1]) / h,

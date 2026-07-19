@@ -191,6 +191,9 @@ int main(int argc, char** argv) {
                 wav_path.empty() ? "QSA playback" : wav_path.c_str());
 
     fusion::Tracker tracker;
+    fusion::ZoneQuantizer zone;
+    bool have_voice = false;
+    float voice_azimuth = 0.0f;
     synth::Engine engine(master);
     std::vector<int16_t> block(kBlockFrames * 2);
     std::vector<fusion::Detection> dets;
@@ -203,14 +206,23 @@ int main(int argc, char** argv) {
         dets.clear();
         for (auto& src : sources) src->poll(now, &dets);
 
+        // Winner-take-all: exactly one object hums — the closest across both
+        // cameras (sticky, so near-ties don't trade the voice) — and its ear
+        // is decided by zone: hard left, both, or hard right.
         const std::vector<fusion::Track> tracks = tracker.update(dets, now);
-        synth::VoiceTarget targets[synth::kMaxVoices];
+        const fusion::Track* voice =
+            fusion::pick_voice(tracks, have_voice, voice_azimuth);
+        synth::VoiceTarget target{0.0f, 0.0f, false};
         int n = 0;
-        for (const fusion::Track& t : tracks) {
-            if (n >= synth::kMaxVoices) break;
-            targets[n++] = {t.closeness, t.azimuth_deg, true};
+        if (voice) {
+            voice_azimuth = voice->azimuth_deg;
+            have_voice = true;
+            target = {voice->closeness, zone.quantize(voice->azimuth_deg), true};
+            n = 1;
+        } else {
+            have_voice = false;
         }
-        engine.set_targets(targets, n);
+        engine.set_targets(&target, n);
 
         engine.render(block.data(), kBlockFrames);
         if (!sink->write(block.data(), kBlockFrames)) {

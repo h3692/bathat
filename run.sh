@@ -20,7 +20,7 @@ CAM_ARGS=""; UND_ARGS=""; DEPTH_ARGS=""; AUDIO_ARGS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         # depth worker: detection + geometry tuning
-        --det-thresh|--min-area|--yaw0|--yaw1|--fov|--model|--threads)
+        --det-thresh|--min-area|--min-contrast|--yaw0|--yaw1|--fov|--model|--threads)
             DEPTH_ARGS="$DEPTH_ARGS $1 $2"; shift 2 ;;
         # undistort worker
         --balance)

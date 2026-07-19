@@ -123,4 +123,35 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
     return tracks;
 }
 
+const Track* pick_voice(const std::vector<Track>& tracks, bool have_holder,
+                        float holder_azimuth_deg) {
+    if (tracks.empty()) return nullptr;
+    const Track* best = &tracks[0];
+    if (!have_holder) return best;
+    for (const Track& t : tracks) {
+        if (std::fabs(t.azimuth_deg - holder_azimuth_deg) <= kVoiceStickyGateDeg &&
+            best->closeness - t.closeness <= kVoiceStickyMargin)
+            return &t;
+    }
+    return best;
+}
+
+float ZoneQuantizer::quantize(float azimuth_deg) {
+    switch (zone_) {
+        case Zone::Left:
+            if (azimuth_deg > -(kEdgeDeg - kHystDeg))
+                zone_ = azimuth_deg > kEdgeDeg ? Zone::Right : Zone::Center;
+            break;
+        case Zone::Right:
+            if (azimuth_deg < kEdgeDeg - kHystDeg)
+                zone_ = azimuth_deg < -kEdgeDeg ? Zone::Left : Zone::Center;
+            break;
+        case Zone::Center:
+            if (azimuth_deg < -kEdgeDeg) zone_ = Zone::Left;
+            else if (azimuth_deg > kEdgeDeg) zone_ = Zone::Right;
+            break;
+    }
+    return zone_ == Zone::Left ? -90.0f : zone_ == Zone::Right ? 90.0f : 0.0f;
+}
+
 }  // namespace fusion

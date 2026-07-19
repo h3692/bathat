@@ -58,6 +58,33 @@ private:
     Slot slots_[kMaxTracks];
 };
 
+// Winner-take-all voice selection: only one object hums at a time. The
+// nearest track wins, but the current holder (identified by its previous
+// azimuth) keeps the voice unless a challenger beats it by a clear closeness
+// margin — otherwise two similar objects would trade the voice every frame.
+// Returns a pointer into `tracks`, or nullptr when there is nothing to voice.
+constexpr float kVoiceStickyGateDeg = 25.0f;
+constexpr float kVoiceStickyMargin = 0.08f;
+const Track* pick_voice(const std::vector<Track>& tracks, bool have_holder,
+                        float holder_azimuth_deg);
+
+// Deterministic ear assignment: azimuths quantize to hard left (-90), both
+// ears (0), or hard right (+90), with a hysteresis band so a borderline
+// object cannot flutter between zones. The synth's pan slew then glides the
+// (rare) zone changes instead of snapping.
+class ZoneQuantizer {
+public:
+    static constexpr float kEdgeDeg = 18.0f;  // |azimuth| beyond this = side zone
+    static constexpr float kHystDeg = 6.0f;   // come this far back to leave it
+
+    // Feed the voiced object's azimuth; returns -90, 0, or +90.
+    float quantize(float azimuth_deg);
+
+private:
+    enum class Zone { Left, Center, Right };
+    Zone zone_ = Zone::Center;
+};
+
 }  // namespace fusion
 
 #endif  // BATHAT_FUSION_H
