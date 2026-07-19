@@ -31,8 +31,10 @@ public:
     const std::vector<bat_det_record>& dets() const { return dets_; }
 
     // False once the depth worker stops publishing, so stale circles are not
-    // drawn over live camera frames.
-    bool fresh(uint64_t now_ns, uint64_t max_age_ns = 600000000ull) const {
+    // drawn over live camera frames. The window covers the worst realistic
+    // inference gap (<1 fps per camera under load) so circles don't blink
+    // between updates.
+    bool fresh(uint64_t now_ns, uint64_t max_age_ns = 2000000000ull) const {
         return have_frame_ && now_ns >= t_publish_ && now_ns - t_publish_ <= max_age_ns;
     }
 

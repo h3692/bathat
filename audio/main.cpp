@@ -35,7 +35,10 @@ volatile sig_atomic_t g_run = 1;
 void on_signal(int) { g_run = 0; }
 
 constexpr int kBlockFrames = 1024;  // ~21 ms at 48 kHz
-constexpr uint64_t kDetFreshNs = 600000000ull;  // ignore rings older than 600 ms
+// Detections count as live for as long as the depth cadence can realistically
+// gap (inference on the Pi can dip below 1 fps per camera under load); going
+// stale means the worker actually died, not that it is merely slow.
+constexpr uint64_t kDetFreshNs = 2000000000ull;
 
 void print_usage(const char* prog) {
     std::fprintf(stderr,

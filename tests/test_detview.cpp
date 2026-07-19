@@ -54,8 +54,10 @@ int main(int argc, char** argv) {
     CHECK(view.poll(), "poll() picks up the first frame");
     CHECK(view.dets().size() == 1, "one detection");
     CHECK(view.fresh(bat_ring_now_ns()), "fresh right after publishing");
-    CHECK(!view.fresh(bat_ring_now_ns() + 700ull * 1000 * 1000),
-          "stale after 700 ms");
+    CHECK(view.fresh(bat_ring_now_ns() + 700ull * 1000 * 1000),
+          "still fresh across a slow inference gap");
+    CHECK(!view.fresh(bat_ring_now_ns() + 2500ull * 1000 * 1000),
+          "stale after 2.5 s");
     CHECK(!view.poll(), "no new frame -> poll() is false");
 
     // Overlay: a 64x32 tile at origin (16, 8) of an 96x48 destination.

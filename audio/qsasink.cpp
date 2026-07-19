@@ -26,7 +26,9 @@ namespace {
 constexpr int kStreamPlayback = 0;    // SND_PCM_STREAM_PLAYBACK
 constexpr int kFormatS16LE = 2;       // SND_PCM_FORMAT_S16_LE
 constexpr int kAccessRwInterleaved = 3;  // SND_PCM_ACCESS_RW_INTERLEAVED
-constexpr unsigned kLatencyUs = 100000;  // 100 ms device buffer
+constexpr unsigned kLatencyUs = 40000;  // 40 ms device buffer: keeps the hum
+                                        // close on the object's heels; the
+                                        // write loop recovers any underrun
 }  // namespace
 
 #include <cstdio>

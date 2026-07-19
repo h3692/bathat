@@ -76,18 +76,19 @@ int main() {
         tracker.update({{1.0f, 0.0f, 0}}, kMs);
         const std::vector<Track> tracks = tracker.update({{1.0f, 10.0f, 0}}, 2 * kMs);
         CHECK(tracks.size() == 1, "moving object keeps one track");
-        CHECK(close_to(tracks[0].azimuth_deg, 4.0f, 0.01f),
-              "azimuth eases toward the new detection (EMA 0.4)");
+        CHECK(close_to(tracks[0].azimuth_deg, 6.0f, 0.01f),
+              "azimuth eases toward the new detection (EMA 0.6)");
     }
 
-    // The hold timer: a missed update inside 300 ms keeps the track alive
-    // (bridging the alternating-camera cadence), a longer gap drops it.
+    // The hold timer: a missed update inside 1.2 s keeps the track alive
+    // (bridging the slow, alternating detection cadence), a longer gap
+    // drops it.
     {
         Tracker tracker;
         tracker.update({{1.0f, 20.0f, 0}}, kMs);
-        CHECK(tracker.update({}, kMs + 200 * kMs).size() == 1,
+        CHECK(tracker.update({}, kMs + 1000 * kMs).size() == 1,
               "missed update inside the hold window keeps the track");
-        CHECK(tracker.update({}, kMs + 400 * kMs).empty(),
+        CHECK(tracker.update({}, kMs + 1400 * kMs).empty(),
               "track drops after the hold window");
     }
 

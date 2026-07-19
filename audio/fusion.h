@@ -41,8 +41,12 @@ public:
     // alternating tracks and the pan ping-pongs around the middle.
     static constexpr float kMergeGateDeg = 20.0f;  // cross-camera same-object gate
     static constexpr float kTrackGateDeg = 22.0f;  // detection-to-track gate
-    static constexpr float kEma = 0.4f;            // per-update smoothing
-    static constexpr uint64_t kHoldNs = 300000000ull;  // 300 ms miss grace
+    // Smoothing and hold are sized for the *actual* detection cadence, which
+    // can dip below 1 fps per camera on the Pi: heavy smoothing or a short
+    // hold at that rate means seconds of reaction lag and a hum that dies and
+    // re-attacks between inferences.
+    static constexpr float kEma = 0.6f;            // per-update smoothing
+    static constexpr uint64_t kHoldNs = 1200000000ull;  // 1.2 s miss grace
 
     // Feed the newest detections from both cameras (concatenated) and the
     // current CLOCK_MONOTONIC time; returns active tracks, nearest first.

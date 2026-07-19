@@ -73,6 +73,10 @@ def main():
     parser.add_argument("--balance", type=float, default=0.0,
                         help="fisheye undistort balance 0..1 (0 = crop to valid pixels, "
                              "1 = keep all FOV with black borders; default 0)")
+    parser.add_argument("--max-fps", type=float, default=10.0,
+                        help="per-camera rectification rate cap (default 10; "
+                             "0 = every frame). Full-rate remap of both "
+                             "cameras eats the CPU the depth model needs.")
     parser.add_argument("--wait", type=float, default=30.0,
                         help="seconds to wait for the camera rings to appear")
     parser.add_argument("--stats-every", type=float, default=5.0,
@@ -102,14 +106,19 @@ def main():
 
     last_idx = [None] * len(readers)
     stats = [CamStats() for _ in readers]
+    interval = 1.0 / args.max_fps if args.max_fps > 0 else 0.0
+    next_due = [0.0] * len(readers)
     last_stats = time.monotonic()
     try:
         while True:
             got_any = False
             for i, reader in enumerate(readers):
+                if time.monotonic() < next_due[i]:
+                    continue  # rate cap: let newer frames pile up, take latest
                 item = reader.read_latest(last_idx[i])
                 if item is None:
                     continue
+                next_due[i] = time.monotonic() + interval
                 meta, payload = item
                 last_idx[i] = meta.frame_idx
                 hdr = reader.header()

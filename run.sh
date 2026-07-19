@@ -29,7 +29,7 @@ while [ $# -gt 0 ]; do
         --master|--adev)
             AUDIO_ARGS="$AUDIO_ARGS $1 $2"; shift 2 ;;
         # capture daemon / viewfinder
-        --iso|--shutter|--width|--height)
+        --iso|--shutter|--width|--height|--view-scale)
             CAM_ARGS="$CAM_ARGS $1 $2"; shift 2 ;;
         --no-display|--no-depth)
             CAM_ARGS="$CAM_ARGS $1"; shift ;;

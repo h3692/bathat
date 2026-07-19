@@ -21,7 +21,7 @@ void on_signal(int) { g_run = 0; }
 
 void print_usage(const char* prog) {
     std::fprintf(stderr,
-                 "usage: %s [--probe] [--no-display] [--no-depth] [--iso N] [--shutter S] [--width W] [--height H]\n"
+                 "usage: %s [--probe] [--no-display] [--no-depth] [--iso N] [--shutter S] [--width W] [--height H] [--view-scale F]\n"
                  "  --probe       print camera capabilities and exit\n"
                  "  --no-display  headless capture daemon: publish frames to shared memory only\n"
                  "  --no-depth    viewfinder shows cameras only, without the live depth tiles\n"
@@ -29,6 +29,9 @@ void print_usage(const char* prog) {
                  "  --shutter S   manual shutter in seconds, longer is brighter (default 0.0666 = ~1/15)\n"
                  "  --width W     per-camera width  (default 1536; must be a supported mode)\n"
                  "  --height H    per-camera height (default 864; see --probe)\n"
+                 "  --view-scale F  viewfinder tile scale 0..1 (default 0.5): smaller tiles\n"
+                 "                mean far less compositing and VNC encoding. The raw-frame\n"
+                 "                fallback (undistort worker not running) shows cropped at <1.\n"
                  "\n"
                  "Frames are always published to the shared-memory rings /bat_cam0 and\n"
                  "/bat_cam1 (visible as /dev/shmem/bat_cam*) for the depth worker to read.\n"
@@ -51,6 +54,7 @@ int main(int argc, char** argv) {
     int height = 864;
     unsigned iso = 1600;      // higher => brighter (more gain/noise)
     double shutter = 0.0666;  // seconds (~1/15); longer => brighter (more motion blur)
+    double view_scale = 0.5;  // viewfinder-only; capture and rings stay full size
     bool probe = false;
     bool no_display = false;
     bool no_depth = false;
@@ -70,6 +74,8 @@ int main(int argc, char** argv) {
             width = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--height") == 0 && i + 1 < argc) {
             height = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--view-scale") == 0 && i + 1 < argc) {
+            view_scale = std::atof(argv[++i]);
         } else {
             print_usage(argv[0]);
             return 2;
@@ -127,11 +133,16 @@ int main(int argc, char** argv) {
 
     // Layout: one camera shows [cam0 | depth0]; two cameras stack the depth
     // tiles under their cameras ([cam0 | cam1] over [depth0 | depth1]).
+    // Tiles render at view_scale of the capture size: the screen (and VNC)
+    // pays for pixels quadratically, and the rings stay full resolution.
     const bool show_depth = !no_display && !no_depth;
+    if (view_scale <= 0.0 || view_scale > 1.0) view_scale = 1.0;
+    const int tile_w = static_cast<int>(width * view_scale) & ~1;
+    const int tile_h = static_cast<int>(height * view_scale) & ~1;
     Display disp;
     if (!no_display) {
-        const int disp_w = (have_b || show_depth) ? 2 * width : width;
-        const int disp_h = (have_b && show_depth) ? 2 * height : height;
+        const int disp_w = (have_b || show_depth) ? 2 * tile_w : tile_w;
+        const int disp_h = (have_b && show_depth) ? 2 * tile_h : tile_h;
         if (!disp.init(disp_w, disp_h)) {
             std::fprintf(stderr, "error: display init failed\n");
             return 1;
@@ -142,9 +153,9 @@ int main(int argc, char** argv) {
     // once depth_worker.py starts, so the views keep retrying until then.
     std::unique_ptr<DepthView> depth_a, depth_b;
     if (show_depth) {
-        depth_a = std::make_unique<DepthView>("/bat_depth0", /*use_shm=*/1, width, height);
+        depth_a = std::make_unique<DepthView>("/bat_depth0", /*use_shm=*/1, tile_w, tile_h);
         if (have_b)
-            depth_b = std::make_unique<DepthView>("/bat_depth1", /*use_shm=*/1, width, height);
+            depth_b = std::make_unique<DepthView>("/bat_depth1", /*use_shm=*/1, tile_w, tile_h);
     }
 
     // Rectified camera panels: read the undistort worker's /bat_rect* rings.
@@ -152,9 +163,9 @@ int main(int argc, char** argv) {
     // the raw in-process frames below, so the viewfinder works either way.
     std::unique_ptr<RectView> rect_a, rect_b;
     if (!no_display) {
-        rect_a = std::make_unique<RectView>("/bat_rect0", /*use_shm=*/1, width, height);
+        rect_a = std::make_unique<RectView>("/bat_rect0", /*use_shm=*/1, tile_w, tile_h);
         if (have_b)
-            rect_b = std::make_unique<RectView>("/bat_rect1", /*use_shm=*/1, width, height);
+            rect_b = std::make_unique<RectView>("/bat_rect1", /*use_shm=*/1, tile_w, tile_h);
     }
 
     // Close-blob detections from the depth worker, circled over each camera's
@@ -172,15 +183,20 @@ int main(int argc, char** argv) {
     uint64_t last_depth_a = 0, last_depth_b = 0;
     while (g_run) {
         if (!no_display) {
-            if (rect_a) rect_a->poll();
-            if (rect_b) rect_b->poll();
-            if (depth_a) depth_a->poll();
-            if (depth_b) depth_b->poll();
-            if (det_a) det_a->poll();
-            if (det_b) det_b->poll();
+            bool changed = false;
+            if (rect_a) changed |= rect_a->poll();
+            if (rect_b) changed |= rect_b->poll();
+            if (depth_a) changed |= depth_a->poll();
+            if (depth_b) changed |= depth_b->poll();
+            if (det_a) changed |= det_a->poll();
+            if (det_b) changed |= det_b->poll();
+            // Recomposite only when a view has new content; the raw-slot
+            // fallback (undistort worker not running) has no change flag, so
+            // it keeps refreshing every pass as before.
+            const bool raw_fallback = !rect_a || !rect_a->valid();
             Nv12Dest dst;
-            if (disp.begin_frame(dst)) {
-                // Top row: camera A at (0,0), camera B (if present) at (width,0).
+            if ((changed || raw_fallback) && disp.begin_frame(dst)) {
+                // Top row: camera A at (0,0), camera B (if present) at (tile_w,0).
                 // Prefer the rectified /bat_rect* frames; fall back to the raw
                 // in-process frames until the undistort worker is running.
                 if (rect_a && rect_a->valid()) {
@@ -191,30 +207,30 @@ int main(int argc, char** argv) {
                 }
                 if (have_b) {
                     if (rect_b && rect_b->valid()) {
-                        composite_place(rect_b->view(), dst, width, 0);
+                        composite_place(rect_b->view(), dst, tile_w, 0);
                     } else {
                         std::scoped_lock lk(slot_b.mutex());
-                        if (slot_b.valid()) composite_place(slot_b.view(), dst, width, 0);
+                        if (slot_b.valid()) composite_place(slot_b.view(), dst, tile_w, 0);
                     }
                 }
                 if (depth_a && depth_a->valid())
                     composite_place(depth_a->view(), dst,
-                                    have_b ? 0 : width, have_b ? height : 0);
+                                    have_b ? 0 : tile_w, have_b ? tile_h : 0);
                 if (depth_b && depth_b->valid())
-                    composite_place(depth_b->view(), dst, width, height);
+                    composite_place(depth_b->view(), dst, tile_w, tile_h);
                 const uint64_t draw_now = bat_ring_now_ns();
                 if (det_a && det_a->fresh(draw_now)) {
-                    det_draw_circles(det_a->dets(), dst, 0, 0, width, height);
+                    det_draw_circles(det_a->dets(), dst, 0, 0, tile_w, tile_h);
                     if (depth_a && depth_a->valid())
                         det_draw_circles(det_a->dets(), dst,
-                                         have_b ? 0 : width, have_b ? height : 0,
-                                         width, height);
+                                         have_b ? 0 : tile_w, have_b ? tile_h : 0,
+                                         tile_w, tile_h);
                 }
                 if (det_b && det_b->fresh(draw_now)) {
-                    det_draw_circles(det_b->dets(), dst, width, 0, width, height);
+                    det_draw_circles(det_b->dets(), dst, tile_w, 0, tile_w, tile_h);
                     if (depth_b && depth_b->valid())
-                        det_draw_circles(det_b->dets(), dst, width, height,
-                                         width, height);
+                        det_draw_circles(det_b->dets(), dst, tile_w, tile_h,
+                                         tile_w, tile_h);
                 }
                 disp.end_frame();
             }
@@ -254,7 +270,7 @@ int main(int argc, char** argv) {
             if (printed) std::printf("\n");
             last_stats = now;
         }
-        usleep(no_display ? 100000 : 15000);  // display path samples at ~60 Hz
+        usleep(no_display ? 100000 : 33000);  // display path samples at ~30 Hz
     }
 
     std::printf("\nshutting down\n");
