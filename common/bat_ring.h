@@ -52,7 +52,30 @@ enum bat_ring_format {
                          (width*height/2); tight stride == width */
     BAT_FMT_F32 = 2,  /* width*height little-endian float32 (depth map) */
     BAT_FMT_BGR8 = 3, /* width*height*3 bytes, B,G,R interleaved (rectified colour) */
+    BAT_FMT_DET = 4,  /* bat_det_payload: close-blob detections from the depth
+                         worker; ring width/height name the depth-map size the
+                         normalized coordinates refer to */
 };
+
+#define BAT_DET_NMAX 8u
+
+/* One detected close blob (mirrored by bat_ring.py). cx/cy/radius are
+ * normalized to the ring's width/height; closeness is [0,1] (1 = nearest,
+ * per-camera rolling-normalized); azimuth_deg is the world bearing
+ * (0 = straight ahead, positive = the user's right). */
+typedef struct bat_det_record {
+    float cx, cy;
+    float radius;
+    float closeness;
+    float azimuth_deg;
+    float area_frac;
+} bat_det_record;
+
+typedef struct bat_det_payload {
+    uint32_t count; /* valid records, sorted by closeness descending */
+    uint32_t reserved;
+    bat_det_record rec[BAT_DET_NMAX];
+} bat_det_payload;
 
 typedef struct bat_ring_hdr {
     uint32_t magic;     /* BAT_RING_MAGIC; written last during init */
@@ -79,6 +102,8 @@ typedef struct bat_slot_hdr {
 
 typedef char bat_ring_hdr_is_64_bytes[(sizeof(bat_ring_hdr) == 64) ? 1 : -1];
 typedef char bat_slot_hdr_is_32_bytes[(sizeof(bat_slot_hdr) == 32) ? 1 : -1];
+typedef char bat_det_record_is_24_bytes[(sizeof(bat_det_record) == 24) ? 1 : -1];
+typedef char bat_det_payload_is_200_bytes[(sizeof(bat_det_payload) == 200) ? 1 : -1];
 
 /* One process's view of a mapped ring. */
 typedef struct bat_ring {

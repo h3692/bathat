@@ -12,9 +12,11 @@ check: test_composite test_ring test_depthview test_rectview
 	./test_composite
 	./test_ring test_ring.ring
 	$(PYTHON) test_ring_read.py test_ring.ring
+	$(PYTHON) test_det_ring.py test_det.ring
+	$(PYTHON) test_detect.py
 	./test_depthview test_depthview.ring
 	./test_rectview test_rectview.ring
-	rm -f test_ring.ring test_depthview.ring test_rectview.ring
+	rm -f test_ring.ring test_det.ring test_depthview.ring test_rectview.ring
 
 test_composite: test_composite.cpp ../src/composite.cpp ../src/composite.h
 	$(CXX) $(CXXFLAGS) -I../src -o $@ test_composite.cpp ../src/composite.cpp

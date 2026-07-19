@@ -31,6 +31,7 @@ NO_FRAME = 0xFFFFFFFF
 FMT_NV12 = 1  # Y plane (w*h) then interleaved UV plane (w*h/2), stride == w
 FMT_F32 = 2   # w*h little-endian float32 (depth map)
 FMT_BGR8 = 3  # w*h*3 bytes, B,G,R interleaved (rectified colour)
+FMT_DET = 4   # detections: u32 count, u32 reserved, DET_NMAX records of 6 f32
 
 _HDR = struct.Struct("<8IQ")   # magic..latest (8 u32), wr_count (u64)
 _HDR_SIZE = 64
@@ -40,6 +41,34 @@ _SLOT_SIZE = 32
 Header = namedtuple(
     "Header", "magic version nslots format width height slot_size latest wr_count")
 Meta = namedtuple("Meta", "size t_capture t_publish frame_idx")
+
+# FMT_DET payload — mirrors bat_det_record/bat_det_payload in bat_ring.h.
+# cx/cy/radius are normalized to the ring's width/height (the depth-map size);
+# closeness is [0,1] (1 = nearest, per-camera rolling-normalized); azimuth_deg
+# is the world bearing (0 = straight ahead, positive = user's right).
+DET_NMAX = 8
+_DET_HDR = struct.Struct("<2I")  # count, reserved
+_DET_REC = struct.Struct("<6f")  # cx, cy, radius, closeness, azimuth_deg, area_frac
+DET_SLOT_SIZE = _DET_HDR.size + DET_NMAX * _DET_REC.size  # 200 bytes
+
+Detection = namedtuple("Detection", "cx cy radius closeness azimuth_deg area_frac")
+
+
+def pack_detections(dets):
+    """Pack up to DET_NMAX Detections into a fixed DET_SLOT_SIZE payload."""
+    dets = list(dets)[:DET_NMAX]
+    buf = bytearray(DET_SLOT_SIZE)
+    _DET_HDR.pack_into(buf, 0, len(dets), 0)
+    for i, d in enumerate(dets):
+        _DET_REC.pack_into(buf, _DET_HDR.size + i * _DET_REC.size, *d)
+    return bytes(buf)
+
+
+def unpack_detections(payload):
+    """Inverse of pack_detections; tolerates a count beyond DET_NMAX."""
+    count = min(_DET_HDR.unpack_from(payload, 0)[0], DET_NMAX)
+    return [Detection(*_DET_REC.unpack_from(payload, _DET_HDR.size + i * _DET_REC.size))
+            for i in range(count)]
 
 
 def now_ns():

@@ -2,9 +2,11 @@
 """Save frames from a bat_ring as PNGs — the eyeball check for every pipeline
 stage. Works on camera rings (NV12 -> color PNG) and depth rings (float32 ->
 inferno colormap PNG, bright/warm = near), auto-detected from the ring header.
+Detection rings (FMT_DET) print their records as text instead of a PNG.
 
     python3 tools/ringdump.py bat_cam0              # 3 fresh frames as PNGs
     python3 tools/ringdump.py bat_depth0 --count 1
+    python3 tools/ringdump.py bat_det0              # print detections as text
 
 Ring names resolve to /dev/shmem/<name> on QNX; plain file paths also work
 (host tests). Needs numpy + OpenCV.
@@ -67,6 +69,18 @@ def main():
             meta, payload = got
             last_idx = meta.frame_idx
             hdr = reader.header()
+
+            if hdr.format == bat_ring.FMT_DET:
+                dets = bat_ring.unpack_detections(payload)
+                print("frame %d: %d detection(s)" % (meta.frame_idx, len(dets)))
+                for d in dets:
+                    print("  az %+7.1f deg   closeness %.2f   centre (%.2f, %.2f)"
+                          "   radius %.3f   area %.1f%%"
+                          % (d.azimuth_deg, d.closeness, d.cx, d.cy,
+                             d.radius, d.area_frac * 100.0))
+                saved += 1
+                deadline = time.monotonic() + args.timeout
+                continue
 
             out = os.path.join(args.out, "%s_f%06d.png" % (stem, meta.frame_idx))
             cv2.imwrite(out, to_bgr(hdr, payload))

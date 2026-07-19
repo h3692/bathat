@@ -14,7 +14,10 @@ capture timestamps ride along into the depth ring, and a stats line prints
 every few seconds with the camera-to-depth latency.
 
 Depth values are MiDaS relative depth (bigger = nearer, arbitrary per-frame
-scale). Consumers must normalize over a rolling window — see HANDOVER.md.
+scale); consumers must normalize over a rolling window. Each depth map is also
+segmented into close blobs (common/detect.py) and the result — centroid,
+size, closeness, world azimuth — is published to /bat_det0, /bat_det1 for the
+viewfinder overlay and the audio process.
 
 On the Pi (after starting the capture daemon: ./bathat --no-display &):
     python3 depth/depth_worker.py
@@ -35,6 +38,8 @@ import numpy as np
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_ROOT, "common"))
 import bat_ring
+import detect
+from undistort import Undistorter
 
 
 def load_interpreter_class():
@@ -82,6 +87,13 @@ def depth_ring_path(cam_path, index):
     if os.path.basename(directory) == "shmem" or os.path.isdir("/dev/shmem"):
         return os.path.join("/dev/shmem", "bat_depth%d" % index)
     return os.path.join(directory, "bat_depth%d.ring" % index)
+
+
+def det_ring_path(cam_path, index):
+    directory = os.path.dirname(cam_path) or "."
+    if os.path.basename(directory) == "shmem" or os.path.isdir("/dev/shmem"):
+        return os.path.join("/dev/shmem", "bat_det%d" % index)
+    return os.path.join(directory, "bat_det%d.ring" % index)
 
 
 # MiDaS v2.1 small expects RGB in [0,1] normalized with ImageNet mean/std
@@ -133,6 +145,16 @@ def main():
                         help="seconds to wait for the camera rings to appear")
     parser.add_argument("--stats-every", type=float, default=5.0,
                         help="seconds between stats lines (0 = quiet)")
+    parser.add_argument("--det-thresh", type=float, default=85.0,
+                        help="close-pixel percentile for blob detection")
+    parser.add_argument("--min-area", type=float, default=0.005,
+                        help="minimum blob area as a fraction of the depth map")
+    parser.add_argument("--yaw0", type=float, default=-45.0,
+                        help="cam0 mounting yaw in degrees (0 = user's forward)")
+    parser.add_argument("--yaw1", type=float, default=45.0,
+                        help="cam1 mounting yaw in degrees")
+    parser.add_argument("--fov", type=float, default=90.0,
+                        help="horizontal FOV fallback when uncalibrated")
     args = parser.parse_args()
 
     if args.cams is None:
@@ -157,13 +179,23 @@ def main():
     writers = [bat_ring.RingWriter(depth_ring_path(p, i), bat_ring.FMT_F32,
                                    out_w, out_h, out_w * out_h * 4)
                for i, p in enumerate(cam_paths)]
+    det_writers = [bat_ring.RingWriter(det_ring_path(p, i), bat_ring.FMT_DET,
+                                       out_w, out_h, bat_ring.DET_SLOT_SIZE)
+                   for i, p in enumerate(cam_paths)]
+    norms = [detect.RollingNorm() for _ in readers]
+    yaws = [args.yaw0, args.yaw1]
+    # new_K of the rectified stream each camera publishes (None -> FOV fallback);
+    # built lazily once the frame size is known from the ring header.
+    new_Ks = [None] * len(readers)
+    calibrated = [False] * len(readers)
     last_idx = [None] * len(readers)
     stats = [CamStats() for _ in readers]
 
     print("runtime: %s   model: %s   %d thread(s)" %
           (runtime_name, os.path.basename(args.model), args.threads))
-    for i, (cam, wr) in enumerate(zip(cam_paths, writers)):
-        print("cam%d: %s  ->  %s (%dx%d float32)" % (i, cam, wr.path, out_w, out_h))
+    for i, (cam, wr, dw) in enumerate(zip(cam_paths, writers, det_writers)):
+        print("cam%d: %s  ->  %s (%dx%d float32)  +  %s (detections)"
+              % (i, cam, wr.path, out_w, out_h, dw.path))
     sys.stdout.flush()  # stats must show up promptly even when piped to a log
 
     last_stats = time.monotonic()
@@ -188,6 +220,24 @@ def main():
 
                 writers[i].write(np.ascontiguousarray(depth, np.float32).tobytes(),
                                  t_capture=meta.t_capture, frame_idx=meta.frame_idx)
+
+                if not calibrated[i]:
+                    und = Undistorter(i, hdr.width, hdr.height)
+                    new_Ks[i] = und.new_K if und.enabled else None
+                    calibrated[i] = True
+                lo, hi = norms[i].update(depth)
+                yaw = yaws[i] if i < len(yaws) else 0.0
+                dets = [bat_ring.Detection(
+                            cx=b.cx, cy=b.cy, radius=b.radius,
+                            closeness=b.closeness, area_frac=b.area_frac,
+                            azimuth_deg=detect.azimuth_deg(
+                                b.cx, new_Ks[i], hdr.width, yaw, args.fov))
+                        for b in detect.detect_blobs(depth, args.det_thresh,
+                                                     args.min_area, lo, hi)]
+                det_writers[i].write(bat_ring.pack_detections(dets),
+                                     t_capture=meta.t_capture,
+                                     frame_idx=meta.frame_idx)
+
                 e2e_ms = (bat_ring.now_ns() - meta.t_capture) / 1e6
                 stats[i].add(invoke_ms, e2e_ms)
                 got_any = True
@@ -208,6 +258,8 @@ def main():
         for r in readers:
             r.close()
         for w in writers:
+            w.close()
+        for w in det_writers:
             w.close()
 
 
