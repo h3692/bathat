@@ -20,16 +20,18 @@ void print_usage(const char* prog) {
                  "usage: %s [--probe] [--ev N] [--width W] [--height H]\n"
                  "  --probe     print camera capabilities and exit\n"
                  "  --ev N      exposure bias, higher is brighter (default 1.0)\n"
-                 "  --width W   per-camera width  (default 640)\n"
-                 "  --height H  per-camera height (default 480)\n",
+                 "  --width W   per-camera width  (default 1536; must be a supported mode)\n"
+                 "  --height H  per-camera height (default 864; see --probe)\n",
                  prog);
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-    int width = 640;
-    int height = 480;
+    // IMX708 on QNX only offers 2304x1296 and 1536x864 for the viewfinder
+    // (confirmed via --probe); default to the smaller/faster mode.
+    int width = 1536;
+    int height = 864;
     double ev_bias = 1.0;  // positive => brighter
     bool probe = false;
 
