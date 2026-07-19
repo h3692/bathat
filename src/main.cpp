@@ -11,6 +11,7 @@
 #include "depthview.h"
 #include "display.h"
 #include "frameslot.h"
+#include "rectview.h"
 
 namespace {
 
@@ -32,7 +33,9 @@ void print_usage(const char* prog) {
                  "/bat_cam1 (visible as /dev/shmem/bat_cam*) for the depth worker to read.\n"
                  "The viewfinder also reads /bat_depth0 and /bat_depth1 back (when the\n"
                  "depth worker is running) and shows each colorized depth map beside or\n"
-                 "below its camera; bright/warm = near.\n",
+                 "below its camera; bright/warm = near.\n"
+                 "Camera panels show the rectified /bat_rect0/1 stream (from the undistort\n"
+                 "worker) when it is running, otherwise the raw camera frames.\n",
                  prog);
 }
 
@@ -141,23 +144,44 @@ int main(int argc, char** argv) {
             depth_b = std::make_unique<DepthView>("/bat_depth1", /*use_shm=*/1, width, height);
     }
 
+    // Rectified camera panels: read the undistort worker's /bat_rect* rings.
+    // If that stage isn't running the views stay invalid and we fall back to
+    // the raw in-process frames below, so the viewfinder works either way.
+    std::unique_ptr<RectView> rect_a, rect_b;
+    if (!no_display) {
+        rect_a = std::make_unique<RectView>("/bat_rect0", /*use_shm=*/1, width, height);
+        if (have_b)
+            rect_b = std::make_unique<RectView>("/bat_rect1", /*use_shm=*/1, width, height);
+    }
+
     std::printf("streaming%s... press Ctrl-C to quit\n", no_display ? " (headless)" : "");
     uint64_t last_stats = bat_ring_now_ns();
     uint64_t last_count_a = 0, last_count_b = 0;
     uint64_t last_depth_a = 0, last_depth_b = 0;
     while (g_run) {
         if (!no_display) {
+            if (rect_a) rect_a->poll();
+            if (rect_b) rect_b->poll();
             if (depth_a) depth_a->poll();
             if (depth_b) depth_b->poll();
             Nv12Dest dst;
             if (disp.begin_frame(dst)) {
-                if (have_b) {
-                    std::scoped_lock lk(slot_a.mutex(), slot_b.mutex());
-                    if (slot_a.valid() && slot_b.valid())
-                        composite_side_by_side(slot_a.view(), slot_b.view(), dst);
+                // Top row: camera A at (0,0), camera B (if present) at (width,0).
+                // Prefer the rectified /bat_rect* frames; fall back to the raw
+                // in-process frames until the undistort worker is running.
+                if (rect_a && rect_a->valid()) {
+                    composite_place(rect_a->view(), dst, 0, 0);
                 } else {
                     std::scoped_lock lk(slot_a.mutex());
-                    if (slot_a.valid()) composite_place(slot_a.view(), dst, 0);
+                    if (slot_a.valid()) composite_place(slot_a.view(), dst, 0, 0);
+                }
+                if (have_b) {
+                    if (rect_b && rect_b->valid()) {
+                        composite_place(rect_b->view(), dst, width, 0);
+                    } else {
+                        std::scoped_lock lk(slot_b.mutex());
+                        if (slot_b.valid()) composite_place(slot_b.view(), dst, width, 0);
+                    }
                 }
                 if (depth_a && depth_a->valid())
                     composite_place(depth_a->view(), dst,

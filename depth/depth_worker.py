@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Depth worker: camera frames in, MiDaS depth maps out. Step 2/3 of the plan.
 
-Reads NV12 frames from the capture daemon's shared-memory rings (/bat_cam0,
-/bat_cam1), runs MiDaS v2.1 small (256x256 TFLite) on the newest frame, and
-publishes each raw float32 depth map to a matching output ring (/bat_depth0,
-/bat_depth1). With two cameras it alternates left/right, so each eye updates
-at half the model rate — as planned.
+Reads frames from the rectified rings (/bat_rect0, /bat_rect1, written by the
+undistort worker; pass --cams to override, e.g. the raw /bat_cam*), runs MiDaS
+v2.1 small (256x256 TFLite) on the newest frame, and publishes each raw float32
+depth map to a matching output ring (/bat_depth0, /bat_depth1). With two cameras
+it alternates left/right, so each eye updates at half the model rate — as
+planned. Rings may be NV12 (raw cameras) or BGR (rectified); both are handled.
 
 The worker free-runs: it always grabs the *newest* frame and never queues, so
 if inference is slower than the camera, frames are skipped on purpose. Source
@@ -69,7 +70,9 @@ def wait_for_rings(names, timeout_s):
             return [bat_ring.resolve_ring_path(n) for n in names]
         except FileNotFoundError as e:
             if time.monotonic() > deadline:
-                sys.exit("%s\n(start the capture daemon first: ./bathat --no-display)" % e)
+                sys.exit("%s\n(start the pipeline first: ./bathat --no-display &  then\n"
+                         " python3 undistort/undistort_worker.py — this reads its "
+                         "/bat_rect* rings)" % e)
             time.sleep(0.25)
 
 
@@ -87,9 +90,13 @@ _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
-def preprocess(nv12_payload, cam_w, cam_h, model_w, model_h):
-    yuv = np.frombuffer(nv12_payload, np.uint8).reshape(cam_h * 3 // 2, cam_w)
-    rgb = cv2.cvtColor(yuv, cv2.COLOR_YUV2RGB_NV12)
+def preprocess(payload, fmt, cam_w, cam_h, model_w, model_h):
+    if fmt == bat_ring.FMT_BGR8:
+        bgr = np.frombuffer(payload, np.uint8).reshape(cam_h, cam_w, 3)
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    else:  # NV12
+        yuv = np.frombuffer(payload, np.uint8).reshape(cam_h * 3 // 2, cam_w)
+        rgb = cv2.cvtColor(yuv, cv2.COLOR_YUV2RGB_NV12)
     resized = cv2.resize(rgb, (model_w, model_h), interpolation=cv2.INTER_AREA)
     normalized = (resized.astype(np.float32) / 255.0 - _MEAN) / _STD
     return normalized[np.newaxis, ...]
@@ -129,9 +136,9 @@ def main():
     args = parser.parse_args()
 
     if args.cams is None:
-        cam_paths = wait_for_rings(["bat_cam0"], args.wait)
+        cam_paths = wait_for_rings(["bat_rect0"], args.wait)
         try:
-            cam_paths.append(bat_ring.resolve_ring_path("bat_cam1"))
+            cam_paths.append(bat_ring.resolve_ring_path("bat_rect1"))
         except FileNotFoundError:
             pass
     else:
@@ -172,7 +179,7 @@ def main():
                 last_idx[i] = meta.frame_idx
                 hdr = reader.header()
 
-                tensor = preprocess(payload, hdr.width, hdr.height, model_w, model_h)
+                tensor = preprocess(payload, hdr.format, hdr.width, hdr.height, model_w, model_h)
                 t0 = time.perf_counter()
                 interpreter.set_tensor(input_detail["index"], tensor)
                 interpreter.invoke()
