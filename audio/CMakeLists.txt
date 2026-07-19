@@ -10,7 +10,7 @@ add_executable(
     audio_radar_test
     src/main.cpp
     src/AudioManager.cpp
-    src/ConsoleAudioOutput.cpp
+    src/WavAudioOutput.cpp
 )
 
 target_include_directories(

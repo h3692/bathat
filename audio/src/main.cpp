@@ -1,62 +1,67 @@
 #include "AudioManager.hpp"
 #include "AudioObstacle.hpp"
-#include "AudioOutput.hpp"
+#include "WavAudioOutput.hpp"
 
 #include <chrono>
 #include <iostream>
-#include <memory>
 #include <thread>
 #include <vector>
-
-AudioOutput* createConsoleAudioOutput();
 
 void runState(
     AudioManager& manager,
     const std::vector<AudioObstacle>& obstacles,
     int durationMilliseconds
 ) {
-    const int updateIntervalMs = 50;
-    int elapsed = 0;
+    const int updateIntervalMilliseconds = 50;
+    int elapsedMilliseconds = 0;
 
-    while (elapsed < durationMilliseconds) {
+    while (
+        elapsedMilliseconds <
+        durationMilliseconds
+    ) {
         manager.update(obstacles);
 
         std::this_thread::sleep_for(
             std::chrono::milliseconds(
-                updateIntervalMs
+                updateIntervalMilliseconds
             )
         );
 
-        elapsed += updateIntervalMs;
+        elapsedMilliseconds +=
+            updateIntervalMilliseconds;
     }
 }
 
 int main() {
-    std::unique_ptr<AudioOutput> audioOutput(
-        createConsoleAudioOutput()
-    );
+    /*
+     * Run the finished program from inside the
+     * audio directory so that "sounds" points to:
+     *
+     * audio/sounds/
+     */
+    WavAudioOutput audioOutput("sounds");
 
-    AudioManager audioManager(*audioOutput);
+    AudioManager audioManager(audioOutput);
 
     std::cout
-        << "\nTEST 1: Chair appears on left\n";
+        << "\nTEST 1: Chair appears on the left\n";
 
     runState(
         audioManager,
         {
             {
-                "chair",
-                -0.75f,
-                0.70f,
-                2,
-                0.95f
+                "chair", // YOLO label
+                -0.75f,  // left side
+                0.70f,   // closeness score
+                2,       // near
+                0.95f    // confidence
             }
         },
         3000
     );
 
     std::cout
-        << "\nTEST 2: Chair gets closer\n";
+        << "\nTEST 2: Chair becomes dangerous\n";
 
     runState(
         audioManager,
@@ -73,7 +78,7 @@ int main() {
     );
 
     std::cout
-        << "\nTEST 3: Chair leaves\n";
+        << "\nTEST 3: Chair leaves the area\n";
 
     runState(
         audioManager,
@@ -82,34 +87,20 @@ int main() {
     );
 
     std::cout
-        << "\nTEST 4: Multiple obstacles\n";
+        << "\nTEST 4: Unknown YOLO label\n";
 
     runState(
         audioManager,
         {
             {
-                "table",
-                0.75f,
-                0.65f,
-                2,
-                0.92f
-            },
-            {
-                "person",
-                0.05f,
-                0.55f,
+                "fire hydrant",
+                0.60f,
+                0.80f,
                 2,
                 0.90f
-            },
-            {
-                "chair",
-                -0.80f,
-                0.90f,
-                3,
-                0.96f
             }
         },
-        3000
+        2000
     );
 
     audioManager.reset();

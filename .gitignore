@@ -1,2 +1,9 @@
-.DS_Store
+# Private environment variables
+.env
+audio/.env
+
+# Build output
 audio/build/
+
+# macOS files
+.DS_Store
