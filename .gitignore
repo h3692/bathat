@@ -1,8 +1,6 @@
-# QNX recold build artifacts
+# Build artifacts
 *.o
-*.a
-*.so
-/nto/aarch64/o.le/bathat
+/bathat
 
 # Host unit-test binary
 /tests/test_composite
