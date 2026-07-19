@@ -55,13 +55,14 @@ stop_all() {
 trap stop_all INT TERM
 
 wait_for_ring() {
-    _deadline=$(( $(date +%s) + 30 ))
+    _tries=0
     until [ -e "/dev/shmem/$1" ]; do
-        if [ "$(date +%s)" -gt "$_deadline" ]; then
+        _tries=$(( _tries + 1 ))
+        if [ "$_tries" -gt 30 ]; then
             echo "run.sh: timed out waiting for /dev/shmem/$1 (check /tmp/bathat.*.log)" >&2
             stop_all
         fi
-        sleep 0.25
+        sleep 1
     done
 }
 
