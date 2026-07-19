@@ -45,7 +45,7 @@ void print_usage(const char* prog) {
                  "                  (default: bat_det0 and, when present, bat_det1)\n"
                  "  --wav PATH      render to a WAV file instead of QNX audio\n"
                  "  --seconds S     stop after S seconds (default 10 with --wav, else run)\n"
-                 "  --adev NAME     QSA PCM device name (default: preferred device)\n"
+                 "  --adev NAME     ALSA PCM device name (default: \"default\")\n"
                  "  --master F      master volume 0..1 (default 0.30)\n"
                  "  --tone          play a 1 s test tone and exit (audio bring-up)\n",
                  prog);

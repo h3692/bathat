@@ -4,10 +4,32 @@
 
 #ifdef __QNX__
 
-#include <sys/asoundlib.h>
+// QNX 8 ships an ALSA-compatible libasound (snd_pcm_open/set_params/writei —
+// confirmed against the image's exported symbols) but no development header,
+// so the handful of declarations the sink needs are vendored here. Only
+// opaque handles, ints, and longs cross this boundary — no struct layouts —
+// which keeps the hand declarations ABI-safe.
+extern "C" {
+typedef struct _snd_pcm snd_pcm_t;
+int snd_pcm_open(snd_pcm_t** pcm, const char* name, int stream, int mode);
+int snd_pcm_set_params(snd_pcm_t* pcm, int format, int access,
+                       unsigned channels, unsigned rate, int soft_resample,
+                       unsigned latency_us);
+long snd_pcm_writei(snd_pcm_t* pcm, const void* buffer, unsigned long frames);
+int snd_pcm_recover(snd_pcm_t* pcm, int err, int silent);
+int snd_pcm_drain(snd_pcm_t* pcm);
+int snd_pcm_close(snd_pcm_t* pcm);
+const char* snd_strerror(int errnum);
+}
+
+namespace {
+constexpr int kStreamPlayback = 0;    // SND_PCM_STREAM_PLAYBACK
+constexpr int kFormatS16LE = 2;       // SND_PCM_FORMAT_S16_LE
+constexpr int kAccessRwInterleaved = 3;  // SND_PCM_ACCESS_RW_INTERLEAVED
+constexpr unsigned kLatencyUs = 100000;  // 100 ms device buffer
+}  // namespace
 
 #include <cstdio>
-#include <cstring>
 
 #include "synth.h"
 
@@ -17,40 +39,17 @@ QsaAudioSink::~QsaAudioSink() { stop(); }
 
 bool QsaAudioSink::start() {
     snd_pcm_t* pcm = nullptr;
-    int rc;
-    if (device_.empty()) {
-        int card = -1, dev = 0;
-        rc = snd_pcm_open_preferred(&pcm, &card, &dev, SND_PCM_OPEN_PLAYBACK);
-    } else {
-        rc = snd_pcm_open_name(&pcm, device_.c_str(), SND_PCM_OPEN_PLAYBACK);
-    }
+    const char* name = device_.empty() ? "default" : device_.c_str();
+    int rc = snd_pcm_open(&pcm, name, kStreamPlayback, 0);
     if (rc < 0) {
-        std::fprintf(stderr, "qsa: open failed: %s\n", snd_strerror(rc));
+        std::fprintf(stderr, "alsa: open '%s' failed: %s\n", name, snd_strerror(rc));
         return false;
     }
-
-    snd_pcm_channel_params_t params;
-    std::memset(&params, 0, sizeof(params));
-    params.channel = SND_PCM_CHANNEL_PLAYBACK;
-    params.mode = SND_PCM_MODE_BLOCK;
-    params.start_mode = SND_PCM_START_FULL;
-    params.stop_mode = SND_PCM_STOP_STOP;
-    params.format.interleave = 1;
-    params.format.format = SND_PCM_SFMT_S16_LE;
-    params.format.rate = synth::kSampleRate;
-    params.format.voices = 2;
-    params.buf.block.frag_size = 4096;  // bytes: 1024 stereo S16 frames ~ 21 ms
-    params.buf.block.frags_min = 1;
-    params.buf.block.frags_max = 4;
-    rc = snd_pcm_plugin_params(pcm, &params);
+    rc = snd_pcm_set_params(pcm, kFormatS16LE, kAccessRwInterleaved,
+                            /*channels=*/2, synth::kSampleRate,
+                            /*soft_resample=*/1, kLatencyUs);
     if (rc < 0) {
-        std::fprintf(stderr, "qsa: params failed: %s\n", snd_strerror(rc));
-        snd_pcm_close(pcm);
-        return false;
-    }
-    rc = snd_pcm_plugin_prepare(pcm, SND_PCM_CHANNEL_PLAYBACK);
-    if (rc < 0) {
-        std::fprintf(stderr, "qsa: prepare failed: %s\n", snd_strerror(rc));
+        std::fprintf(stderr, "alsa: set_params failed: %s\n", snd_strerror(rc));
         snd_pcm_close(pcm);
         return false;
     }
@@ -61,28 +60,21 @@ bool QsaAudioSink::start() {
 bool QsaAudioSink::write(const int16_t* frames, int nframes) {
     if (!handle_) return false;
     snd_pcm_t* pcm = static_cast<snd_pcm_t*>(handle_);
-    const char* p = reinterpret_cast<const char*>(frames);
-    int remaining = nframes * 2 * static_cast<int>(sizeof(int16_t));
+    const int16_t* p = frames;
+    long remaining = nframes;
     while (remaining > 0) {
-        const int wrote = snd_pcm_plugin_write(pcm, p, remaining);
-        if (wrote < remaining) {
-            // Short write: usually an underrun; re-prepare and push the rest.
-            snd_pcm_channel_status_t status;
-            std::memset(&status, 0, sizeof(status));
-            status.channel = SND_PCM_CHANNEL_PLAYBACK;
-            if (snd_pcm_plugin_status(pcm, &status) < 0) return false;
-            if (status.status == SND_PCM_STATUS_UNDERRUN ||
-                status.status == SND_PCM_STATUS_READY) {
-                if (snd_pcm_plugin_prepare(pcm, SND_PCM_CHANNEL_PLAYBACK) < 0)
-                    return false;
-            } else if (wrote <= 0) {
+        const long n = snd_pcm_writei(pcm, p, static_cast<unsigned long>(remaining));
+        if (n < 0) {
+            // Usually an underrun; recover() re-prepares and we resend.
+            const int rc = snd_pcm_recover(pcm, static_cast<int>(n), /*silent=*/1);
+            if (rc < 0) {
+                std::fprintf(stderr, "alsa: write failed: %s\n", snd_strerror(rc));
                 return false;
             }
+            continue;
         }
-        if (wrote > 0) {
-            p += wrote;
-            remaining -= wrote;
-        }
+        p += n * 2;
+        remaining -= n;
     }
     return true;
 }
@@ -90,7 +82,7 @@ bool QsaAudioSink::write(const int16_t* frames, int nframes) {
 void QsaAudioSink::stop() {
     if (!handle_) return;
     snd_pcm_t* pcm = static_cast<snd_pcm_t*>(handle_);
-    snd_pcm_plugin_flush(pcm, SND_PCM_CHANNEL_PLAYBACK);
+    snd_pcm_drain(pcm);
     snd_pcm_close(pcm);
     handle_ = nullptr;
 }
