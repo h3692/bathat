@@ -14,10 +14,11 @@ int camera_probe_all();
 // One running camera that streams NV12 viewfinder frames into a FrameSlot.
 class CameraStream {
 public:
-    // Open `unit`, configure an NV12 viewfinder at width x height, set
-    // auto-exposure with a positive EV bias (clamped to what the sensor
-    // supports), and start streaming into `slot`. Returns true on success.
-    bool start(camera_unit_t unit, int width, int height, double ev_bias, FrameSlot& slot);
+    // Open `unit`, configure an NV12 viewfinder at width x height, enable auto
+    // white balance, set manual exposure (ISO + shutter seconds, each clamped to
+    // the sensor's supported range), and start streaming into `slot`.
+    bool start(camera_unit_t unit, int width, int height, unsigned iso, double shutter,
+               FrameSlot& slot);
 
     // Stop the viewfinder and close the camera. Safe to call more than once.
     void stop();

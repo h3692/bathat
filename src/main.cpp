@@ -17,11 +17,12 @@ void on_signal(int) { g_run = 0; }
 
 void print_usage(const char* prog) {
     std::fprintf(stderr,
-                 "usage: %s [--probe] [--ev N] [--width W] [--height H]\n"
-                 "  --probe     print camera capabilities and exit\n"
-                 "  --ev N      exposure bias, higher is brighter (default 1.0)\n"
-                 "  --width W   per-camera width  (default 1536; must be a supported mode)\n"
-                 "  --height H  per-camera height (default 864; see --probe)\n",
+                 "usage: %s [--probe] [--iso N] [--shutter S] [--width W] [--height H]\n"
+                 "  --probe      print camera capabilities and exit\n"
+                 "  --iso N      manual ISO/gain, higher is brighter (default 800)\n"
+                 "  --shutter S  manual shutter in seconds, longer is brighter (default 0.0333 = 1/30)\n"
+                 "  --width W    per-camera width  (default 1536; must be a supported mode)\n"
+                 "  --height H   per-camera height (default 864; see --probe)\n",
                  prog);
 }
 
@@ -32,14 +33,17 @@ int main(int argc, char** argv) {
     // (confirmed via --probe); default to the smaller/faster mode.
     int width = 1536;
     int height = 864;
-    double ev_bias = 1.0;  // positive => brighter
+    unsigned iso = 800;           // higher => brighter (more gain/noise)
+    double shutter = 1.0 / 30.0;  // seconds; longer => brighter (more motion blur)
     bool probe = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--probe") == 0) {
             probe = true;
-        } else if (std::strcmp(argv[i], "--ev") == 0 && i + 1 < argc) {
-            ev_bias = std::atof(argv[++i]);
+        } else if (std::strcmp(argv[i], "--iso") == 0 && i + 1 < argc) {
+            iso = static_cast<unsigned>(std::atoi(argv[++i]));
+        } else if (std::strcmp(argv[i], "--shutter") == 0 && i + 1 < argc) {
+            shutter = std::atof(argv[++i]);
         } else if (std::strcmp(argv[i], "--width") == 0 && i + 1 < argc) {
             width = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--height") == 0 && i + 1 < argc) {
@@ -69,7 +73,7 @@ int main(int argc, char** argv) {
     FrameSlot slot_a, slot_b;
     CameraStream cam_a, cam_b;
 
-    const bool have_a = cam_a.start(units[0], width, height, ev_bias, slot_a);
+    const bool have_a = cam_a.start(units[0], width, height, iso, shutter, slot_a);
     if (!have_a) {
         std::fprintf(stderr, "error: failed to start camera A\n");
         return 1;
@@ -77,7 +81,7 @@ int main(int argc, char** argv) {
 
     bool have_b = false;
     if (n >= 2) {
-        have_b = cam_b.start(units[1], width, height, ev_bias, slot_b);
+        have_b = cam_b.start(units[1], width, height, iso, shutter, slot_b);
         if (!have_b)
             std::fprintf(stderr, "warn: second camera failed to start; showing single feed\n");
     } else {

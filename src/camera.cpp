@@ -41,50 +41,95 @@ static void vf_callback(camera_handle_t /*handle*/, camera_buffer_t* buf, void* 
     if (extract_nv12(*buf, f)) slot->write(f);
 }
 
-// Prefer auto-exposure with a positive EV bias: brighter, but adapts to
-// changing light and keeps the shutter short (no motion blur on a moving
-// navigation camera). Falls back to plain auto-exposure if EV offset is
-// unsupported on this sensor.
-static void configure_exposure(camera_handle_t h, double ev_bias) {
-    if (camera_set_exposure_mode(h, CAMERA_EXPOSUREMODE_AUTO) != CAMERA_EOK)
-        std::fprintf(stderr, "  warn: could not set auto-exposure mode\n");
-
+// Pick a supported manual ISO closest to `want`, clamped to the sensor's range.
+// Per the header, when the range flag is set, values[0] is the MAX and [1] the MIN.
+static unsigned pick_iso(camera_handle_t h, unsigned want) {
     unsigned num = 0;
-    bool maxmin = false;
-    if (camera_get_supported_ev_offsets(h, 0, &num, NULL, &maxmin) != CAMERA_EOK || num == 0) {
-        std::fprintf(stderr, "  warn: EV offset unsupported; using plain auto-exposure\n");
-        return;
+    bool is_range = false;
+    if (camera_get_supported_manual_iso_values(h, 0, &num, NULL, &is_range) != CAMERA_EOK || num == 0) {
+        std::fprintf(stderr, "  warn: no supported ISO values reported\n");
+        return want;
     }
+    std::vector<unsigned> v(num);
+    if (camera_get_supported_manual_iso_values(h, num, &num, v.data(), &is_range) != CAMERA_EOK)
+        return want;
 
-    std::vector<double> offs(num);
-    if (camera_get_supported_ev_offsets(h, num, &num, offs.data(), &maxmin) != CAMERA_EOK) {
-        std::fprintf(stderr, "  warn: could not read EV offsets; using plain auto-exposure\n");
-        return;
+    if (is_range) {
+        const unsigned mx = v[0], mn = v[1];
+        std::printf("  ISO range: %u..%u\n", mn, mx);
+        return want < mn ? mn : (want > mx ? mx : want);
     }
-
-    double chosen;
-    if (maxmin) {
-        // offs holds {min, max}: clamp the requested bias into range.
-        const double lo = offs.front(), hi = offs.back();
-        chosen = ev_bias < lo ? lo : (ev_bias > hi ? hi : ev_bias);
-    } else {
-        // Discrete list: pick the supported value closest to the request.
-        chosen = offs[0];
-        double best = std::fabs(offs[0] - ev_bias);
-        for (double o : offs) {
-            const double dist = std::fabs(o - ev_bias);
-            if (dist < best) { best = dist; chosen = o; }
-        }
+    unsigned chosen = v[0];
+    double best = std::fabs(double(v[0]) - double(want));
+    std::printf("  ISO options:");
+    for (unsigned x : v) {
+        std::printf(" %u", x);
+        const double d = std::fabs(double(x) - double(want));
+        if (d < best) { best = d; chosen = x; }
     }
-
-    if (camera_set_ev_offset(h, chosen) == CAMERA_EOK)
-        std::printf("  exposure: auto + EV offset %.2f\n", chosen);
-    else
-        std::fprintf(stderr, "  warn: failed to set EV offset %.2f\n", chosen);
+    std::printf("\n");
+    return chosen;
 }
 
-bool CameraStream::start(camera_unit_t unit, int width, int height, double ev_bias,
-                         FrameSlot& slot) {
+// Pick a supported manual shutter speed (in seconds) closest to `want`.
+static double pick_shutter(camera_handle_t h, double want) {
+    unsigned num = 0;
+    bool is_range = false;
+    if (camera_get_supported_manual_shutter_speeds(h, 0, &num, NULL, &is_range) != CAMERA_EOK || num == 0) {
+        std::fprintf(stderr, "  warn: no supported shutter speeds reported\n");
+        return want;
+    }
+    std::vector<double> v(num);
+    if (camera_get_supported_manual_shutter_speeds(h, num, &num, v.data(), &is_range) != CAMERA_EOK)
+        return want;
+
+    if (is_range) {
+        const double mx = v[0], mn = v[1];
+        std::printf("  shutter range: %.5f..%.5f s\n", mn, mx);
+        return want < mn ? mn : (want > mx ? mx : want);
+    }
+    double chosen = v[0];
+    double best = std::fabs(v[0] - want);
+    std::printf("  shutter options:");
+    for (double x : v) {
+        std::printf(" %.5f", x);
+        const double d = std::fabs(x - want);
+        if (d < best) { best = d; chosen = x; }
+    }
+    std::printf("\n");
+    return chosen;
+}
+
+// Make the image look natural and bright:
+//  - auto white balance removes the yellow/green colour cast, and
+//  - full manual exposure (ISO + shutter) forces a brighter result than the
+//    auto-metered target, since EV offset is unsupported on this sensor.
+static void configure_3a(camera_handle_t h, unsigned iso, double shutter) {
+    if (camera_set_whitebalance_mode(h, CAMERA_WHITEBALANCEMODE_AUTO) == CAMERA_EOK)
+        std::printf("  white balance: auto\n");
+    else
+        std::fprintf(stderr, "  warn: could not set auto white balance\n");
+
+    if (camera_set_exposure_mode(h, CAMERA_EXPOSUREMODE_MANUAL) != CAMERA_EOK) {
+        std::fprintf(stderr, "  warn: could not set manual exposure; leaving default\n");
+        return;
+    }
+
+    const unsigned use_iso = pick_iso(h, iso);
+    if (camera_set_manual_iso(h, use_iso) == CAMERA_EOK)
+        std::printf("  ISO: %u\n", use_iso);
+    else
+        std::fprintf(stderr, "  warn: failed to set ISO %u\n", use_iso);
+
+    const double use_sh = pick_shutter(h, shutter);
+    if (camera_set_manual_shutter_speed(h, use_sh) == CAMERA_EOK)
+        std::printf("  shutter: %.5fs (~1/%.0f)\n", use_sh, use_sh > 0 ? 1.0 / use_sh : 0.0);
+    else
+        std::fprintf(stderr, "  warn: failed to set shutter %.5f\n", use_sh);
+}
+
+bool CameraStream::start(camera_unit_t unit, int width, int height, unsigned iso,
+                         double shutter, FrameSlot& slot) {
     // VERIFY open mode against your SDP; CAMERA_MODE_RW is the usual choice for
     // configuring and streaming a viewfinder.
     camera_error_t err = camera_open(unit, CAMERA_MODE_RW, &handle_);
@@ -106,8 +151,6 @@ bool CameraStream::start(camera_unit_t unit, int width, int height, double ev_bi
         return false;
     }
 
-    configure_exposure(handle_, ev_bias);
-
     err = camera_start_viewfinder(handle_, &vf_callback, NULL, &slot);
     if (err != CAMERA_EOK) {
         std::fprintf(stderr, "camera_start_viewfinder(unit %d) failed: %d\n",
@@ -116,6 +159,9 @@ bool CameraStream::start(camera_unit_t unit, int width, int height, double ev_bi
         handle_ = CAMERA_HANDLE_INVALID;
         return false;
     }
+
+    // 3A (white balance + exposure) applies while the viewfinder is running.
+    configure_3a(handle_, iso, shutter);
 
     streaming_ = true;
     std::printf("camera unit %d streaming NV12 %dx%d\n", static_cast<int>(unit), width, height);
