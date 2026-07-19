@@ -1,11 +1,20 @@
 # Build artifacts
 *.o
 /bathat
+/bat_audio
 
 # Host unit-test binaries
 /tests/test_composite
 /tests/test_depthview
 /tests/test_ring
+/tests/test_rectview
+/tests/test_detview
+/tests/test_synth
+/tests/test_fusion
+/tests/test_wavsink
+
+# Dev-machine hum renders (bat_audio --wav); shipped sounds live in audio/sounds
+/*.wav
 
 # Runtime/debug artifacts: file-backed rings, ringdump PNGs, python cache
 *.ring
