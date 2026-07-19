@@ -11,6 +11,7 @@
 *.ring
 bat_cam*.png
 bat_depth*.png
+board.png
 __pycache__/
 
 # The MiDaS model is copied in, not committed (see README.md)
