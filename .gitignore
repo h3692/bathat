@@ -17,3 +17,8 @@ __pycache__/
 
 # Editor-local settings
 .vscode/
+
+.DS_Store
+/audio/build/
+/audio/.env
+.env
