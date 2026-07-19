@@ -35,8 +35,12 @@ struct Track {
 class Tracker {
 public:
     static constexpr int kMaxTracks = 3;
-    static constexpr float kMergeGateDeg = 12.0f;  // cross-camera same-object gate
-    static constexpr float kTrackGateDeg = 15.0f;  // detection-to-track gate
+    // Wide gates on purpose: the mounting yaws are approximate, so the two
+    // cameras can disagree noticeably about one object in the overlap; if the
+    // gates are tighter than that disagreement, the object splits into two
+    // alternating tracks and the pan ping-pongs around the middle.
+    static constexpr float kMergeGateDeg = 20.0f;  // cross-camera same-object gate
+    static constexpr float kTrackGateDeg = 22.0f;  // detection-to-track gate
     static constexpr float kEma = 0.4f;            // per-update smoothing
     static constexpr uint64_t kHoldNs = 300000000ull;  // 300 ms miss grace
 

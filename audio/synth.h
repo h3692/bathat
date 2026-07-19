@@ -44,7 +44,7 @@ struct VoiceTarget {
 
 class Engine {
 public:
-    explicit Engine(float master = 0.30f);
+    explicit Engine(float master = 0.45f);
 
     // Replace the voice targets (index = rank). Fewer than kMaxVoices targets
     // fades the remaining voices out.

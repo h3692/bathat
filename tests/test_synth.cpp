@@ -43,10 +43,10 @@ static std::vector<int16_t> render_seconds(synth::Engine& engine, double seconds
 
 int main() {
     // Pulse rate: 0.8 Hz far, 10 Hz danger-close, rising along a steep power
-    // curve (gamma 2.5) so most of the acceleration happens near the end.
+    // curve (gamma 3.5) so most of the acceleration happens near the end.
     CHECK(close_to(synth::pulse_hz(0.0f), 0.8f, 1e-6f), "pulse far end");
     CHECK(close_to(synth::pulse_hz(1.0f), 10.0f, 1e-5f), "pulse near end");
-    const float mid_pulse = 0.8f + 9.2f * std::pow(0.5f, 2.5f);
+    const float mid_pulse = 0.8f + 9.2f * std::pow(0.5f, 3.5f);
     CHECK(close_to(synth::pulse_hz(0.5f), mid_pulse, 1e-5f),
           "pulse midpoint sits low on the curve");
     CHECK(synth::pulse_hz(0.9f) - synth::pulse_hz(0.8f) >
@@ -59,7 +59,7 @@ int main() {
     CHECK(close_to(synth::voice_gain(1.0f, 1), 0.1f, 1e-4f), "rank 1 at -20 dB");
     CHECK(close_to(synth::voice_gain(1.0f, 2), 0.1f, 1e-4f), "rank 2 at -20 dB");
     CHECK(synth::voice_gain(1.0f, 3) == 0.0f, "rank 3+ silent");
-    const float half_db = -48.0f * (1.0f - std::pow(0.5f, 2.5f));
+    const float half_db = -48.0f * (1.0f - std::pow(0.5f, 3.5f));
     CHECK(close_to(synth::voice_gain(0.5f, 0), std::pow(10.0f, half_db / 20.0f), 1e-4f),
           "half closeness sits deep on the curve (~-40 dB)");
     CHECK(synth::voice_gain(0.9f, 0) / synth::voice_gain(0.8f, 0) >
@@ -83,11 +83,12 @@ int main() {
     }
 
     // A single hard-left voice: loud on the left, near-nothing on the right.
+    // (2 s: the pan slew is deliberately slow, so convergence takes a while.)
     {
         synth::Engine engine;
         synth::VoiceTarget t[] = {{1.0f, -90.0f, true}};
         engine.set_targets(t, 1);
-        const std::vector<int16_t> buf = render_seconds(engine, 1.0);
+        const std::vector<int16_t> buf = render_seconds(engine, 2.0);
         const double left = tail_rms(buf, 0), right = tail_rms(buf, 1);
         CHECK(left > 1000.0, "hard-left voice is audible on the left");
         CHECK(right < left / 50.0, "hard-left voice is silent on the right");

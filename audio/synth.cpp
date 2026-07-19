@@ -17,7 +17,7 @@ constexpr float kRankPenalty = 0.1f;       // -20 dB for every rank behind the n
 // Perceptual steepening: both the pulse rate and the level ride closeness^2.5,
 // so a distant object barely murmurs (slow pulse, deep in the -48 dB range)
 // and the last stretch of approach escalates hard.
-constexpr float kResponseGamma = 2.5f;
+constexpr float kResponseGamma = 3.5f;
 constexpr float kLevelRangeDb = 48.0f;
 constexpr float kPulseMinHz = 0.8f;
 constexpr float kPulseMaxHz = 10.0f;
@@ -29,7 +29,10 @@ float slew_k(float tau_s) {
 
 const float kAttackK = slew_k(0.08f);   // gain rises (new voice / approach)
 const float kReleaseK = slew_k(0.20f);  // gain falls (lost voice / retreat)
-const float kPanK = slew_k(0.06f);
+// Slow pan on purpose: when the trackers' azimuth jumps (overlap handoffs,
+// camera disagreement) the hum glides through the middle of the stereo image
+// instead of snapping ear to ear.
+const float kPanK = slew_k(0.25f);
 const float kPulseK = slew_k(0.15f);
 
 }  // namespace

@@ -46,7 +46,7 @@ void print_usage(const char* prog) {
                  "  --wav PATH      render to a WAV file instead of QNX audio\n"
                  "  --seconds S     stop after S seconds (default 10 with --wav, else run)\n"
                  "  --adev NAME     ALSA PCM device name (default: \"default\")\n"
-                 "  --master F      master volume 0..1 (default 0.30)\n"
+                 "  --master F      master volume 0..1 (default 0.45)\n"
                  "  --tone          play a 1 s test tone and exit (audio bring-up)\n",
                  prog);
 }
@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> det_names;
     std::string wav_path, adev;
     double seconds = -1.0;
-    float master = 0.30f;
+    float master = 0.45f;
     bool tone = false;
 
     for (int i = 1; i < argc; ++i) {

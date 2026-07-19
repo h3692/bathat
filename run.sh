@@ -40,8 +40,9 @@ done
 
 cd "$(dirname "$0")"
 
-[ -x ./bathat ]    || make bathat    || exit 1
-[ -x ./bat_audio ] || make bat_audio || exit 1
+# Always run make: it no-ops when binaries are current, and prevents stale
+# binaries from silently running old code after a git pull.
+make bathat bat_audio || exit 1
 
 PIDS=""
 stop_all() {
