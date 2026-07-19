@@ -57,16 +57,8 @@ def load_interpreter_class():
 
 
 def default_model_path():
-    # models/ in this repo, or the bat-tim benchmark kit (sibling checkout on
-    # the Mac; ~/repos/tims-bat on the Pi).
-    for candidate in (os.path.join(_ROOT, "models", "midas_v21_small_256.tflite"),
-                      os.path.join(_ROOT, os.pardir, "bat-tim", "models",
-                                   "midas_v21_small_256.tflite"),
-                      os.path.join(_ROOT, os.pardir, "tims-bat", "models",
-                                   "midas_v21_small_256.tflite")):
-        if os.path.exists(candidate):
-            return candidate
-    return candidate  # let the interpreter report the missing file
+    # models/ in this repo (./models/ when run from the repo root).
+    return os.path.join(_ROOT, "models", "midas_v21_small_256.tflite")
 
 
 def wait_for_rings(names, timeout_s):
