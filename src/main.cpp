@@ -9,6 +9,7 @@
 #include "camera.h"
 #include "composite.h"
 #include "depthview.h"
+#include "detview.h"
 #include "display.h"
 #include "frameslot.h"
 #include "rectview.h"
@@ -35,7 +36,9 @@ void print_usage(const char* prog) {
                  "depth worker is running) and shows each colorized depth map beside or\n"
                  "below its camera; bright/warm = near.\n"
                  "Camera panels show the rectified /bat_rect0/1 stream (from the undistort\n"
-                 "worker) when it is running, otherwise the raw camera frames.\n",
+                 "worker) when it is running, otherwise the raw camera frames.\n"
+                 "Close blobs published to /bat_det0/1 by the depth worker are circled on\n"
+                 "both the camera and depth tiles.\n",
                  prog);
 }
 
@@ -154,6 +157,15 @@ int main(int argc, char** argv) {
             rect_b = std::make_unique<RectView>("/bat_rect1", /*use_shm=*/1, width, height);
     }
 
+    // Close-blob detections from the depth worker, circled over each camera's
+    // tiles (camera and depth alike) while they stay fresh.
+    std::unique_ptr<DetView> det_a, det_b;
+    if (!no_display) {
+        det_a = std::make_unique<DetView>("/bat_det0", /*use_shm=*/1);
+        if (have_b)
+            det_b = std::make_unique<DetView>("/bat_det1", /*use_shm=*/1);
+    }
+
     std::printf("streaming%s... press Ctrl-C to quit\n", no_display ? " (headless)" : "");
     uint64_t last_stats = bat_ring_now_ns();
     uint64_t last_count_a = 0, last_count_b = 0;
@@ -164,6 +176,8 @@ int main(int argc, char** argv) {
             if (rect_b) rect_b->poll();
             if (depth_a) depth_a->poll();
             if (depth_b) depth_b->poll();
+            if (det_a) det_a->poll();
+            if (det_b) det_b->poll();
             Nv12Dest dst;
             if (disp.begin_frame(dst)) {
                 // Top row: camera A at (0,0), camera B (if present) at (width,0).
@@ -188,6 +202,20 @@ int main(int argc, char** argv) {
                                     have_b ? 0 : width, have_b ? height : 0);
                 if (depth_b && depth_b->valid())
                     composite_place(depth_b->view(), dst, width, height);
+                const uint64_t draw_now = bat_ring_now_ns();
+                if (det_a && det_a->fresh(draw_now)) {
+                    det_draw_circles(det_a->dets(), dst, 0, 0, width, height);
+                    if (depth_a && depth_a->valid())
+                        det_draw_circles(det_a->dets(), dst,
+                                         have_b ? 0 : width, have_b ? height : 0,
+                                         width, height);
+                }
+                if (det_b && det_b->fresh(draw_now)) {
+                    det_draw_circles(det_b->dets(), dst, width, 0, width, height);
+                    if (depth_b && depth_b->valid())
+                        det_draw_circles(det_b->dets(), dst, width, height,
+                                         width, height);
+                }
                 disp.end_frame();
             }
         }

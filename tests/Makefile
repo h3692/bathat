@@ -8,7 +8,7 @@ CXXFLAGS ?= -std=gnu++17 -O2 -Wall -Wextra
 PYTHON   ?= python3
 
 .PHONY: check clean
-check: test_composite test_ring test_depthview test_rectview
+check: test_composite test_ring test_depthview test_rectview test_detview
 	./test_composite
 	./test_ring test_ring.ring
 	$(PYTHON) test_ring_read.py test_ring.ring
@@ -16,7 +16,9 @@ check: test_composite test_ring test_depthview test_rectview
 	$(PYTHON) test_detect.py
 	./test_depthview test_depthview.ring
 	./test_rectview test_rectview.ring
-	rm -f test_ring.ring test_det.ring test_depthview.ring test_rectview.ring
+	./test_detview test_detview.ring
+	rm -f test_ring.ring test_det.ring test_depthview.ring test_rectview.ring \
+		test_detview.ring
 
 test_composite: test_composite.cpp ../src/composite.cpp ../src/composite.h
 	$(CXX) $(CXXFLAGS) -I../src -o $@ test_composite.cpp ../src/composite.cpp
@@ -32,6 +34,11 @@ test_rectview: test_rectview.cpp ../src/rectview.cpp ../src/rectview.h \
 		../src/composite.h ../common/bat_ring.h
 	$(CXX) $(CXXFLAGS) -I../src -I../common -o $@ test_rectview.cpp ../src/rectview.cpp
 
+test_detview: test_detview.cpp ../src/detview.cpp ../src/detview.h \
+		../src/composite.h ../common/bat_ring.h
+	$(CXX) $(CXXFLAGS) -I../src -I../common -o $@ test_detview.cpp ../src/detview.cpp
+
 clean:
-	rm -f test_composite test_ring test_depthview test_rectview \
-		test_ring.ring test_depthview.ring test_rectview.ring
+	rm -f test_composite test_ring test_depthview test_rectview test_detview \
+		test_ring.ring test_det.ring test_depthview.ring test_rectview.ring \
+		test_detview.ring
