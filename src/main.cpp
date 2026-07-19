@@ -19,8 +19,8 @@ void print_usage(const char* prog) {
     std::fprintf(stderr,
                  "usage: %s [--probe] [--iso N] [--shutter S] [--width W] [--height H]\n"
                  "  --probe      print camera capabilities and exit\n"
-                 "  --iso N      manual ISO/gain, higher is brighter (default 800)\n"
-                 "  --shutter S  manual shutter in seconds, longer is brighter (default 0.0333 = 1/30)\n"
+                 "  --iso N      manual ISO/gain, higher is brighter (default 1600)\n"
+                 "  --shutter S  manual shutter in seconds, longer is brighter (default 0.0666 = ~1/15)\n"
                  "  --width W    per-camera width  (default 1536; must be a supported mode)\n"
                  "  --height H   per-camera height (default 864; see --probe)\n",
                  prog);
@@ -33,8 +33,8 @@ int main(int argc, char** argv) {
     // (confirmed via --probe); default to the smaller/faster mode.
     int width = 1536;
     int height = 864;
-    unsigned iso = 800;           // higher => brighter (more gain/noise)
-    double shutter = 1.0 / 30.0;  // seconds; longer => brighter (more motion blur)
+    unsigned iso = 1600;      // higher => brighter (more gain/noise)
+    double shutter = 0.0666;  // seconds (~1/15); longer => brighter (more motion blur)
     bool probe = false;
 
     for (int i = 1; i < argc; ++i) {
