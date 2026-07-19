@@ -37,6 +37,11 @@ volatile sig_atomic_t g_run = 1;
 void on_signal(int) { g_run = 0; }
 
 constexpr int kBlockFrames = 1024;  // ~21 ms at 48 kHz
+
+// Announce only obstacles that are audibly close — below this the hum is a
+// background murmur and a spoken call-out would just be noise.
+constexpr float kNotifyMinCloseness = 0.35f;
+
 // Detections count as live for as long as the depth cadence can realistically
 // gap (inference on the Pi can dip below 1 fps per camera under load); going
 // stale means the worker actually died, not that it is merely slow.
@@ -54,7 +59,7 @@ void print_usage(const char* prog) {
                  "  --master F      master volume 0..1 (default 0.45)\n"
                  "  --tone          play a 1 s test tone and exit (audio bring-up)\n"
                  "  --notify-dir D  spoken-notification clips (default audio/sounds/notify)\n"
-                 "  --notify-cooldown S  min seconds between announcements (default 4)\n"
+                 "  --notify-cooldown S  seconds between announcements (default 10)\n"
                  "  --no-notify     hum only, no spoken announcements\n",
                  prog);
 }
@@ -152,7 +157,7 @@ int main(int argc, char** argv) {
     std::string wav_path, adev;
     std::string notify_dir = "audio/sounds/notify";
     double seconds = -1.0;
-    double notify_cooldown = 4.0;
+    double notify_cooldown = 10.0;
     float master = 0.45f;
     bool tone = false;
     bool no_notify = false;
@@ -226,8 +231,6 @@ int main(int argc, char** argv) {
                      "warn: no notification clips in %s (run "
                      "audio/generate_notify.py) — hum only\n",
                      notify_dir.c_str());
-    uint32_t announced_ids[8] = {0};  // recent track ids; 0 is never assigned
-    int announced_next = 0;
     uint64_t last_announce_ns = 0;
     const uint64_t cooldown_ns =
         static_cast<uint64_t>(notify_cooldown * 1e9);
@@ -263,18 +266,15 @@ int main(int argc, char** argv) {
             target = {voice->closeness, zone_az, true};
             n = 1;
 
-            // Announce a NEW obstacle once: same track id never re-announces,
-            // and a global cooldown keeps churn from chattering.
-            if (notify) {
-                bool seen = false;
-                for (uint32_t id : announced_ids) seen |= (id == voice->id);
-                if (!seen && now - last_announce_ns >= cooldown_ns) {
-                    speech.announce(notify_key(voice->azimuth_deg),
-                                    zone_az / 90.0f);
-                    announced_ids[announced_next] = voice->id;
-                    announced_next = (announced_next + 1) % 8;
-                    last_announce_ns = now;
-                }
+            // Periodic digest: at most one announcement per cooldown window,
+            // and only for an obstacle that is audibly close. A new obstacle
+            // after a quiet stretch announces immediately; one that stays put
+            // is re-called-out once per window. Track identity churn (seam
+            // handoffs, flicker) can no longer cause chatter by construction.
+            if (notify && voice->closeness >= kNotifyMinCloseness &&
+                now - last_announce_ns >= cooldown_ns) {
+                speech.announce(notify_key(voice->azimuth_deg), zone_az / 90.0f);
+                last_announce_ns = now;
             }
         } else {
             have_voice = false;
