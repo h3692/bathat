@@ -11,16 +11,17 @@
 # Clean:  make clean
 
 CXX      ?= g++
-CXXFLAGS ?= -std=gnu++17 -O2 -Wall -Wextra -Isrc
+CXXFLAGS ?= -std=gnu++17 -O2 -Wall -Wextra -Isrc -Icommon
 LDLIBS   ?= -lcamapi -lscreen
 
 SRCS := src/main.cpp src/camera.cpp src/frameslot.cpp src/composite.cpp src/display.cpp
 OBJS := $(SRCS:.cpp=.o)
+HDRS := $(wildcard src/*.h common/*.h)
 
 bathat: $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
-%.o: %.cpp
+%.o: %.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 .PHONY: test clean

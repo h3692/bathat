@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -33,12 +34,45 @@ static bool extract_nv12(const camera_buffer_t& buf, Nv12Frame& out) {
     return out.width > 0 && out.height > 0;
 }
 
+// Copy one frame into the shared-memory ring, compacting padded strides to the
+// ring's tight stride == width layout. Runs in the camera callback; the copy
+// (~2 MB at 1536x864) is well under a frame interval on the Pi 5.
+static void publish_nv12(bat_ring* ring, const Nv12Frame& f, uint64_t t_capture) {
+    const uint32_t need = static_cast<uint32_t>(f.width) * f.height * 3 / 2;
+    if (static_cast<uint32_t>(f.width) != ring->hdr->width ||
+        static_cast<uint32_t>(f.height) != ring->hdr->height || need > ring->hdr->slot_size) {
+        static bool warned = false;
+        if (!warned) {
+            std::fprintf(stderr, "warn: %dx%d frame doesn't fit ring (%ux%u); not publishing\n",
+                         f.width, f.height, ring->hdr->width, ring->hdr->height);
+            warned = true;
+        }
+        return;
+    }
+
+    uint8_t* dst = bat_ring_write_begin(ring);
+    for (int r = 0; r < f.height; ++r)
+        memcpy(dst + static_cast<size_t>(r) * f.width,
+               f.y + static_cast<size_t>(r) * f.y_stride, static_cast<size_t>(f.width));
+    uint8_t* dst_uv = dst + static_cast<size_t>(f.width) * f.height;
+    for (int r = 0; r < f.height / 2; ++r)
+        memcpy(dst_uv + static_cast<size_t>(r) * f.width,
+               f.uv + static_cast<size_t>(r) * f.uv_stride, static_cast<size_t>(f.width));
+    bat_ring_write_end(ring, need, t_capture);
+}
+
 static void vf_callback(camera_handle_t /*handle*/, camera_buffer_t* buf, void* arg) {
-    FrameSlot* slot = static_cast<FrameSlot*>(arg);
-    if (!slot || !buf) return;
+    FrameSink* sink = static_cast<FrameSink*>(arg);
+    if (!sink || !buf) return;
 
     Nv12Frame f;
-    if (extract_nv12(*buf, f)) slot->write(f);
+    if (!extract_nv12(*buf, f)) return;
+
+    // Frame-arrival time on CLOCK_MONOTONIC; carried through the pipeline so
+    // every later stage can report camera-to-output latency.
+    const uint64_t t_capture = bat_ring_now_ns();
+    if (sink->ring) publish_nv12(sink->ring, f, t_capture);
+    if (sink->slot) sink->slot->write(f);
 }
 
 // Pick a supported manual ISO closest to `want`, clamped to the sensor's range.
@@ -129,7 +163,7 @@ static void configure_3a(camera_handle_t h, unsigned iso, double shutter) {
 }
 
 bool CameraStream::start(camera_unit_t unit, int width, int height, unsigned iso,
-                         double shutter, FrameSlot& slot) {
+                         double shutter, FrameSink& sink) {
     // VERIFY open mode against your SDP; CAMERA_MODE_RW is the usual choice for
     // configuring and streaming a viewfinder.
     camera_error_t err = camera_open(unit, CAMERA_MODE_RW, &handle_);
@@ -151,7 +185,7 @@ bool CameraStream::start(camera_unit_t unit, int width, int height, unsigned iso
         return false;
     }
 
-    err = camera_start_viewfinder(handle_, &vf_callback, NULL, &slot);
+    err = camera_start_viewfinder(handle_, &vf_callback, NULL, &sink);
     if (err != CAMERA_EOK) {
         std::fprintf(stderr, "camera_start_viewfinder(unit %d) failed: %d\n",
                      static_cast<int>(unit), err);

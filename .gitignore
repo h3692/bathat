@@ -2,5 +2,18 @@
 *.o
 /bathat
 
-# Host unit-test binary
+# Host unit-test binaries
 /tests/test_composite
+/tests/test_ring
+
+# Runtime/debug artifacts: file-backed rings, ringdump PNGs, python cache
+*.ring
+bat_cam*.png
+bat_depth*.png
+__pycache__/
+
+# The MiDaS model is copied in, not committed (see README.md)
+/models/
+
+# Editor-local settings
+.vscode/

@@ -3,6 +3,7 @@
 
 #include <camera/camera_api.h>
 
+#include "bat_ring.h"
 #include "frameslot.h"
 
 // Print every camera the framework reports, plus each one's supported
@@ -11,14 +12,22 @@
 // facts. Returns 0 on success, non-zero if enumeration failed.
 int camera_probe_all();
 
-// One running camera that streams NV12 viewfinder frames into a FrameSlot.
+// Where a camera's frames go. Either destination may be null:
+//  - slot feeds the on-screen viewfinder (skipped with --no-display),
+//  - ring publishes to the shared-memory ring the depth worker reads.
+struct FrameSink {
+    FrameSlot* slot = nullptr;
+    bat_ring* ring = nullptr;
+};
+
+// One running camera that streams NV12 viewfinder frames into a FrameSink.
 class CameraStream {
 public:
     // Open `unit`, configure an NV12 viewfinder at width x height, enable auto
     // white balance, set manual exposure (ISO + shutter seconds, each clamped to
-    // the sensor's supported range), and start streaming into `slot`.
+    // the sensor's supported range), and start streaming into `sink`.
     bool start(camera_unit_t unit, int width, int height, unsigned iso, double shutter,
-               FrameSlot& slot);
+               FrameSink& sink);
 
     // Stop the viewfinder and close the camera. Safe to call more than once.
     void stop();
