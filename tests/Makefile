@@ -9,7 +9,7 @@ PYTHON   ?= python3
 
 .PHONY: check clean
 check: test_composite test_ring test_depthview test_rectview test_detview \
-		test_synth test_fusion
+		test_synth test_fusion test_wavsink
 	./test_composite
 	./test_ring test_ring.ring
 	$(PYTHON) test_ring_read.py test_ring.ring
@@ -20,6 +20,7 @@ check: test_composite test_ring test_depthview test_rectview test_detview \
 	./test_detview test_detview.ring
 	./test_synth
 	./test_fusion
+	./test_wavsink test_wavsink.wav
 	rm -f test_ring.ring test_det.ring test_depthview.ring test_rectview.ring \
 		test_detview.ring
 
@@ -47,7 +48,12 @@ test_synth: test_synth.cpp ../audio/synth.cpp ../audio/synth.h
 test_fusion: test_fusion.cpp ../audio/fusion.cpp ../audio/fusion.h
 	$(CXX) $(CXXFLAGS) -I../audio -o $@ test_fusion.cpp ../audio/fusion.cpp
 
+test_wavsink: test_wavsink.cpp ../audio/wavfilesink.cpp ../audio/wavfilesink.h \
+		../audio/audiosink.h ../audio/synth.h
+	$(CXX) $(CXXFLAGS) -I../audio -o $@ test_wavsink.cpp ../audio/wavfilesink.cpp
+
 clean:
 	rm -f test_composite test_ring test_depthview test_rectview test_detview \
+		test_synth test_fusion test_wavsink test_wavsink.wav \
 		test_ring.ring test_det.ring test_depthview.ring test_rectview.ring \
 		test_detview.ring
