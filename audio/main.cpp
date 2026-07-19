@@ -12,6 +12,7 @@
 //                 (feed the ring with tools/detfeed.py)
 // Bring-up:       ./bat_audio --tone                (1 s test tone, then exit)
 
+#include <algorithm>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +27,7 @@
 #include "bat_ring.h"
 #include "fusion.h"
 #include "qsasink.h"
+#include "speech.h"
 #include "synth.h"
 #include "wavfilesink.h"
 
@@ -50,8 +52,22 @@ void print_usage(const char* prog) {
                  "  --seconds S     stop after S seconds (default 10 with --wav, else run)\n"
                  "  --adev NAME     ALSA PCM device name (default: \"default\")\n"
                  "  --master F      master volume 0..1 (default 0.45)\n"
-                 "  --tone          play a 1 s test tone and exit (audio bring-up)\n",
+                 "  --tone          play a 1 s test tone and exit (audio bring-up)\n"
+                 "  --notify-dir D  spoken-notification clips (default audio/sounds/notify)\n"
+                 "  --notify-cooldown S  min seconds between announcements (default 4)\n"
+                 "  --no-notify     hum only, no spoken announcements\n",
                  prog);
+}
+
+// "obstacle at x degrees": azimuth rounded to the nearest 15-degree clip.
+std::string notify_key(float azimuth_deg) {
+    int b = static_cast<int>(std::lrintf(azimuth_deg / 15.0f)) * 15;
+    b = std::min(90, std::max(-90, b));
+    if (b == 0) return "ahead";
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%d_%s", b < 0 ? -b : b,
+                  b < 0 ? "left" : "right");
+    return buf;
 }
 
 // One detection ring, opened lazily like the viewfinder's views: the depth
@@ -134,9 +150,12 @@ int run_tone(AudioSink& sink) {
 int main(int argc, char** argv) {
     std::vector<std::string> det_names;
     std::string wav_path, adev;
+    std::string notify_dir = "audio/sounds/notify";
     double seconds = -1.0;
+    double notify_cooldown = 4.0;
     float master = 0.45f;
     bool tone = false;
+    bool no_notify = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--dets") == 0) {
@@ -152,6 +171,12 @@ int main(int argc, char** argv) {
             master = static_cast<float>(std::atof(argv[++i]));
         } else if (std::strcmp(argv[i], "--tone") == 0) {
             tone = true;
+        } else if (std::strcmp(argv[i], "--notify-dir") == 0 && i + 1 < argc) {
+            notify_dir = argv[++i];
+        } else if (std::strcmp(argv[i], "--notify-cooldown") == 0 && i + 1 < argc) {
+            notify_cooldown = std::atof(argv[++i]);
+        } else if (std::strcmp(argv[i], "--no-notify") == 0) {
+            no_notify = true;
         } else {
             print_usage(argv[0]);
             return 2;
@@ -193,6 +218,20 @@ int main(int argc, char** argv) {
     std::printf("bat_audio: %zu detection ring(s) -> %s\n", sources.size(),
                 wav_path.empty() ? "QSA playback" : wav_path.c_str());
 
+    // Spoken notifications: absent clips just disable the feature.
+    SpeechPlayer speech;
+    const bool notify = !no_notify && speech.load(notify_dir);
+    if (!no_notify && !notify)
+        std::fprintf(stderr,
+                     "warn: no notification clips in %s (run "
+                     "audio/generate_notify.py) — hum only\n",
+                     notify_dir.c_str());
+    uint32_t announced_ids[8] = {0};  // recent track ids; 0 is never assigned
+    int announced_next = 0;
+    uint64_t last_announce_ns = 0;
+    const uint64_t cooldown_ns =
+        static_cast<uint64_t>(notify_cooldown * 1e9);
+
     fusion::Tracker tracker;
     fusion::ZoneQuantizer zone;
     bool have_voice = false;
@@ -220,14 +259,30 @@ int main(int argc, char** argv) {
         if (voice) {
             voice_azimuth = voice->azimuth_deg;
             have_voice = true;
-            target = {voice->closeness, zone.quantize(voice->azimuth_deg), true};
+            const float zone_az = zone.quantize(voice->azimuth_deg);
+            target = {voice->closeness, zone_az, true};
             n = 1;
+
+            // Announce a NEW obstacle once: same track id never re-announces,
+            // and a global cooldown keeps churn from chattering.
+            if (notify) {
+                bool seen = false;
+                for (uint32_t id : announced_ids) seen |= (id == voice->id);
+                if (!seen && now - last_announce_ns >= cooldown_ns) {
+                    speech.announce(notify_key(voice->azimuth_deg),
+                                    zone_az / 90.0f);
+                    announced_ids[announced_next] = voice->id;
+                    announced_next = (announced_next + 1) % 8;
+                    last_announce_ns = now;
+                }
+            }
         } else {
             have_voice = false;
         }
         engine.set_targets(&target, n);
 
         engine.render(block.data(), kBlockFrames);
+        if (notify) speech.mix(block.data(), kBlockFrames);
         if (!sink->write(block.data(), kBlockFrames)) {
             std::fprintf(stderr, "error: audio write failed\n");
             break;

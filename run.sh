@@ -26,8 +26,10 @@ while [ $# -gt 0 ]; do
         --balance)
             UND_ARGS="$UND_ARGS $1 $2"; shift 2 ;;
         # audio process
-        --master|--adev)
+        --master|--adev|--notify-dir|--notify-cooldown)
             AUDIO_ARGS="$AUDIO_ARGS $1 $2"; shift 2 ;;
+        --no-notify)
+            AUDIO_ARGS="$AUDIO_ARGS $1"; shift ;;
         # capture daemon / viewfinder
         --iso|--shutter|--width|--height|--view-scale)
             CAM_ARGS="$CAM_ARGS $1 $2"; shift 2 ;;

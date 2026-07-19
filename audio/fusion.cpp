@@ -82,7 +82,8 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
                 }
             }
             if (best >= 0) {
-                slots_[best] = Slot{true, c.closeness, c.azimuth_deg, now_ns};
+                slots_[best] = Slot{true, c.closeness, c.azimuth_deg, now_ns,
+                                    next_id_++};
                 matched[best] = true;
                 continue;
             }
@@ -93,7 +94,8 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
                     weakest = i;
             }
             if (weakest >= 0 && c.closeness > slots_[weakest].closeness) {
-                slots_[weakest] = Slot{true, c.closeness, c.azimuth_deg, now_ns};
+                slots_[weakest] = Slot{true, c.closeness, c.azimuth_deg, now_ns,
+                                       next_id_++};
                 matched[weakest] = true;
             }
             continue;
@@ -115,7 +117,7 @@ std::vector<Track> Tracker::update(const std::vector<Detection>& dets,
     // 5. Rank nearest-first: index = the synthesizer's voice rank.
     std::vector<Track> tracks;
     for (const Slot& s : slots_)
-        if (s.used) tracks.push_back({s.closeness, s.azimuth_deg});
+        if (s.used) tracks.push_back({s.closeness, s.azimuth_deg, s.id});
     std::sort(tracks.begin(), tracks.end(),
               [](const Track& x, const Track& y) {
                   return x.closeness > y.closeness;

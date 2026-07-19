@@ -22,7 +22,7 @@ HDRS := $(wildcard src/*.h common/*.h audio/*.h)
 # bat_audio needs io-audio (QSA) only on the target; elsewhere the QSA sink is
 # a stub and the WAV sink does the work.
 AUDIO_SRCS := audio/main.cpp audio/synth.cpp audio/fusion.cpp \
-	audio/wavfilesink.cpp audio/qsasink.cpp
+	audio/speech.cpp audio/wavfilesink.cpp audio/qsasink.cpp
 AUDIO_OBJS := $(AUDIO_SRCS:.cpp=.o)
 ifeq ($(shell uname -s),QNX)
 AUDIO_LDLIBS := -lasound

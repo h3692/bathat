@@ -116,6 +116,20 @@ int main() {
               "farther object does not evict a nearer track");
     }
 
+    // Track identity: a surviving track keeps its id across updates (so the
+    // announcer can dedupe), while a genuinely new object gets a fresh id.
+    {
+        Tracker tracker;
+        const std::vector<Track> t1 = tracker.update({{1.0f, 0.0f, 0}}, kMs);
+        const std::vector<Track> t2 = tracker.update({{1.0f, 10.0f, 0}}, 2 * kMs);
+        CHECK(t1.size() == 1 && t2.size() == 1, "one track both rounds");
+        CHECK(t1[0].id != 0 && t1[0].id == t2[0].id, "surviving track keeps its id");
+        const std::vector<Track> t3 =
+            tracker.update({{1.0f, 10.0f, 0}, {0.9f, 60.0f, 0}}, 3 * kMs);
+        CHECK(t3.size() == 2 && t3[0].id == t1[0].id && t3[1].id != t1[0].id,
+              "a new object gets a fresh id");
+    }
+
     // Winner-take-all voice selection: the closest track wins, but the
     // current holder keeps the voice unless a challenger is clearly closer.
     {

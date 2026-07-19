@@ -30,6 +30,8 @@ struct Detection {
 struct Track {
     float closeness;    // EMA-smoothed
     float azimuth_deg;  // EMA-smoothed
+    uint32_t id = 0;    // stable while the track lives; fresh per new object,
+                        // never reused — the announcer dedupes on it
 };
 
 class Tracker {
@@ -58,8 +60,10 @@ private:
         float closeness = 0.0f;
         float azimuth_deg = 0.0f;
         uint64_t last_hit_ns = 0;
+        uint32_t id = 0;
     };
     Slot slots_[kMaxTracks];
+    uint32_t next_id_ = 1;
 };
 
 // Winner-take-all voice selection: only one object hums at a time. The
