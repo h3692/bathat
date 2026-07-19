@@ -14,6 +14,14 @@ constexpr float kAmDepth = 0.85f;          // pulse swings amplitude 0.15..1.0
 constexpr float kClosenessFloor = 0.15f;   // below this an object is "background"
 constexpr float kRankPenalty = 0.1f;       // -20 dB for every rank behind the nearest
 
+// Perceptual steepening: both the pulse rate and the level ride closeness^2.5,
+// so a distant object barely murmurs (slow pulse, deep in the -48 dB range)
+// and the last stretch of approach escalates hard.
+constexpr float kResponseGamma = 2.5f;
+constexpr float kLevelRangeDb = 48.0f;
+constexpr float kPulseMinHz = 0.8f;
+constexpr float kPulseMaxHz = 10.0f;
+
 // One-pole coefficient for a time constant in seconds at the sample rate.
 float slew_k(float tau_s) {
     return 1.0f - std::exp(-1.0f / (tau_s * kSampleRate));
@@ -27,13 +35,14 @@ const float kPulseK = slew_k(0.15f);
 }  // namespace
 
 float pulse_hz(float closeness) {
-    return 1.5f + 6.5f * std::min(std::max(closeness, 0.0f), 1.0f);
+    const float c = std::min(std::max(closeness, 0.0f), 1.0f);
+    return kPulseMinHz + (kPulseMaxHz - kPulseMinHz) * std::pow(c, kResponseGamma);
 }
 
 float voice_gain(float closeness, int rank) {
     if (rank < 0 || rank >= kMaxVoices || closeness < kClosenessFloor) return 0.0f;
     const float c = std::min(closeness, 1.0f);
-    const float level_db = -30.0f + 30.0f * c;
+    const float level_db = -kLevelRangeDb * (1.0f - std::pow(c, kResponseGamma));
     const float gain = std::pow(10.0f, level_db / 20.0f);
     return rank == 0 ? gain : gain * kRankPenalty;
 }

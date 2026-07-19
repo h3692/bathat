@@ -20,12 +20,15 @@ namespace synth {
 constexpr int kSampleRate = 48000;
 constexpr int kMaxVoices = 3;
 
-// Pulse (tremolo) rate for a closeness in [0,1]: 1.5 Hz far -> 8 Hz close.
+// Pulse (tremolo) rate for a closeness in [0,1]: 0.8 Hz far -> 10 Hz close,
+// riding a steep power curve so the acceleration lands near the end of the
+// approach.
 float pulse_hz(float closeness);
 
-// Linear gain (master excluded) for a voice: closeness maps -30..0 dB, ranks
-// behind the nearest lose 20 dB, and anything below the closeness floor or
-// beyond rank 2 is silent.
+// Linear gain (master excluded) for a voice: closeness maps -48..0 dB along
+// the same steep curve (distant objects barely murmur, the final approach
+// swells hard), ranks behind the nearest lose 20 dB, and anything below the
+// closeness floor or beyond rank 2 is silent.
 float voice_gain(float closeness, int rank);
 
 // Constant-power pan across the 180-degree forward arc; azimuth is clamped

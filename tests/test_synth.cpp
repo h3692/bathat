@@ -42,19 +42,29 @@ static std::vector<int16_t> render_seconds(synth::Engine& engine, double seconds
 }
 
 int main() {
-    // Pulse rate: 1.5 Hz far, 8 Hz danger-close, linear in between.
-    CHECK(close_to(synth::pulse_hz(0.0f), 1.5f, 1e-6f), "pulse far end");
-    CHECK(close_to(synth::pulse_hz(1.0f), 8.0f, 1e-6f), "pulse near end");
-    CHECK(close_to(synth::pulse_hz(0.5f), 4.75f, 1e-6f), "pulse midpoint");
+    // Pulse rate: 0.8 Hz far, 10 Hz danger-close, rising along a steep power
+    // curve (gamma 2.5) so most of the acceleration happens near the end.
+    CHECK(close_to(synth::pulse_hz(0.0f), 0.8f, 1e-6f), "pulse far end");
+    CHECK(close_to(synth::pulse_hz(1.0f), 10.0f, 1e-5f), "pulse near end");
+    const float mid_pulse = 0.8f + 9.2f * std::pow(0.5f, 2.5f);
+    CHECK(close_to(synth::pulse_hz(0.5f), mid_pulse, 1e-5f),
+          "pulse midpoint sits low on the curve");
+    CHECK(synth::pulse_hz(0.9f) - synth::pulse_hz(0.8f) >
+              synth::pulse_hz(0.5f) - synth::pulse_hz(0.4f),
+          "pulse accelerates as the object nears");
 
-    // Gain law: closeness maps -30..0 dB; ranks behind the nearest lose 20 dB;
-    // below the closeness floor or beyond rank 2 is silent.
+    // Gain law: closeness maps -48..0 dB along the same steep curve; ranks
+    // behind the nearest lose 20 dB; below the floor or beyond rank 2 silent.
     CHECK(close_to(synth::voice_gain(1.0f, 0), 1.0f, 1e-4f), "nearest at 0 dB");
     CHECK(close_to(synth::voice_gain(1.0f, 1), 0.1f, 1e-4f), "rank 1 at -20 dB");
     CHECK(close_to(synth::voice_gain(1.0f, 2), 0.1f, 1e-4f), "rank 2 at -20 dB");
     CHECK(synth::voice_gain(1.0f, 3) == 0.0f, "rank 3+ silent");
-    CHECK(close_to(synth::voice_gain(0.5f, 0), std::pow(10.0f, -15.0f / 20.0f), 1e-4f),
-          "half closeness = -15 dB");
+    const float half_db = -48.0f * (1.0f - std::pow(0.5f, 2.5f));
+    CHECK(close_to(synth::voice_gain(0.5f, 0), std::pow(10.0f, half_db / 20.0f), 1e-4f),
+          "half closeness sits deep on the curve (~-40 dB)");
+    CHECK(synth::voice_gain(0.9f, 0) / synth::voice_gain(0.8f, 0) >
+              synth::voice_gain(0.5f, 0) / synth::voice_gain(0.4f, 0),
+          "loudness ratio steepens as the object nears");
     CHECK(synth::voice_gain(0.1f, 0) == 0.0f, "below the closeness floor = silent");
 
     // Constant-power pan across the 180-degree arc.
