@@ -78,8 +78,42 @@ int main() {
         for (int c = DW; c < DYS; ++c)
             CHECK(dy[r * DYS + c] == 0, "Y stride padding untouched");
 
+    // Vertical placement: a 2-tall destination grid with one frame placed in
+    // the bottom-left cell, at an odd y that must be forced even (3 -> 2).
+    {
+        const int GH = 2 * H;
+        std::vector<uint8_t> gy(static_cast<size_t>(DYS) * GH, 0);
+        std::vector<uint8_t> guv(static_cast<size_t>(DUVS) * (GH / 2), 0);
+        Nv12Dest grid;
+        grid.y = gy.data();
+        grid.uv = guv.data();
+        grid.width = DW;
+        grid.height = GH;
+        grid.y_stride = DYS;
+        grid.uv_stride = DUVS;
+
+        composite_place(right.view, grid, 0, H + 3);  // odd offset -> H + 2
+
+        const int y0 = H + 2;
+        for (int r = 0; r < GH; ++r)
+            for (int c = 0; c < W; ++c) {
+                const bool inside = r >= y0 && r < y0 + H - 2;  // clipped at bottom
+                CHECK(gy[r * DYS + c] == (inside ? 0x20 : 0), "grid Y placement");
+            }
+        // UV rows start at y0/2 and cover (H-2)/2 rows of the placed frame.
+        for (int r = 0; r < GH / 2; ++r)
+            for (int c = 0; c < W; ++c) {
+                const bool inside = r >= y0 / 2 && r < y0 / 2 + (H - 2) / 2;
+                CHECK(guv[r * DUVS + c] == (inside ? 0x90 : 0), "grid UV placement");
+            }
+        // Right half of the grid was never composited into.
+        for (int r = 0; r < GH; ++r)
+            for (int c = W; c < DW; ++c)
+                CHECK(gy[r * DYS + c] == 0, "grid right half untouched");
+    }
+
     if (failures == 0) {
-        std::printf("PASS: composite_side_by_side (all checks)\n");
+        std::printf("PASS: composite_side_by_side + composite_place y-offset (all checks)\n");
         return 0;
     }
     std::printf("%d check(s) FAILED\n", failures);

@@ -26,10 +26,10 @@ struct Nv12Dest {
     int uv_stride = 0;
 };
 
-// Copy one NV12 frame into `dst` at horizontal pixel offset `x` (forced even
-// for chroma alignment). The copy is clipped to what fits, so a size mismatch
+// Copy one NV12 frame into `dst` at pixel offset (`x`, `y`), each forced even
+// for chroma alignment. The copy is clipped to what fits, so a size mismatch
 // truncates rather than overflowing the destination.
-void composite_place(const Nv12Frame& src, Nv12Dest& dst, int x);
+void composite_place(const Nv12Frame& src, Nv12Dest& dst, int x, int y = 0);
 
 // Place `left` at x=0 and `right` immediately to its right (x = left.width).
 void composite_side_by_side(const Nv12Frame& left, const Nv12Frame& right, Nv12Dest& dst);

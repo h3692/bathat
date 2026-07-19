@@ -4,6 +4,7 @@
 
 # Host unit-test binaries
 /tests/test_composite
+/tests/test_depthview
 /tests/test_ring
 
 # Runtime/debug artifacts: file-backed rings, ringdump PNGs, python cache

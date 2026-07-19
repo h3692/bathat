@@ -42,6 +42,13 @@ python3 tools/ringdump.py bat_cam0       # save camera frames as PNGs
 python3 tools/ringdump.py bat_depth0     # save depth maps as PNGs (bright = near)
 ```
 
+The viewfinder also streams the depth maps live: it reads /bat_depth0 and
+/bat_depth1 back and shows each colorized depth map (inferno, bright = near)
+beside its camera — one camera gives `[cam | depth]`, two give a 2x2 grid with
+the depth row underneath. The tiles are black until the depth worker starts,
+and the 2 s stats line grows a `depth0:` fps column. `--no-depth` restores the
+camera-only view.
+
 Python deps (`python3-numpy`, `python3-opencv`, `python3-tflite-runtime`) are
 already installed on the Pi via apk. The depth worker looks for the MiDaS model
 in `models/` here, then in the benchmark kit next door (`../bat-tim` or
@@ -57,7 +64,7 @@ The IMX708 sensor under QNX offers only 2304x1296 and 1536x864; the default is
 ## Testing on the Mac (no Pi needed)
 
 ```sh
-make -C tests    # composite + ring unit tests, incl. C <-> Python interop
+make -C tests    # composite + ring + depth-view unit tests, incl. C <-> Python interop
 ```
 
 Full pipeline dry-run with a fake camera feeding the bat-tim test images

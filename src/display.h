@@ -9,7 +9,9 @@
 // The compositor draws it to the display, which your VNC session mirrors.
 class Display {
 public:
-    // Create an NV12 window of width x height and its render buffer.
+    // Create an NV12 render buffer of width x height. The window itself is
+    // sized to aspect-fit the attached display (Screen GPU-scales the buffer),
+    // so composites wider or taller than the panel still show in full.
     bool init(int width, int height);
     void shutdown();
 

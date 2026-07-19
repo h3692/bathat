@@ -14,7 +14,7 @@ CXX      ?= g++
 CXXFLAGS ?= -std=gnu++17 -O2 -Wall -Wextra -Isrc -Icommon
 LDLIBS   ?= -lcamapi -lscreen
 
-SRCS := src/main.cpp src/camera.cpp src/frameslot.cpp src/composite.cpp src/display.cpp
+SRCS := src/main.cpp src/camera.cpp src/frameslot.cpp src/composite.cpp src/depthview.cpp src/display.cpp
 OBJS := $(SRCS:.cpp=.o)
 HDRS := $(wildcard src/*.h common/*.h)
 
